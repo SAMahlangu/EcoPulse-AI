@@ -1,0 +1,1816 @@
+{
+  "source": "Municipal Demarcation Board (MDB), 2026 municipal layers",
+  "retrieved_on": "2026-10-22",
+  "effective_from": "2026-11-04",
+  "source_urls": [
+    "https://services7.arcgis.com/oeoyTUJC8HEeYsRB/arcgis/rest/services/MDB_District_Municipalities_2026/FeatureServer/0/query",
+    "https://services7.arcgis.com/oeoyTUJC8HEeYsRB/arcgis/rest/services/MDB_L_ocal_Municipalities_2026/FeatureServer/0/query"
+  ],
+  "counts": {
+    "metropolitan": 8,
+    "district": 44,
+    "local": 205,
+    "municipalities": 257
+  },
+  "municipalities": [
+    {
+      "code": "DC44",
+      "name": "Alfred Nzo",
+      "province_code": "EC",
+      "type": "district",
+      "parent_code": null
+    },
+    {
+      "code": "DC12",
+      "name": "Amathole",
+      "province_code": "EC",
+      "type": "district",
+      "parent_code": null
+    },
+    {
+      "code": "DC13",
+      "name": "Chris Hani",
+      "province_code": "EC",
+      "type": "district",
+      "parent_code": null
+    },
+    {
+      "code": "DC14",
+      "name": "Joe Gqabi",
+      "province_code": "EC",
+      "type": "district",
+      "parent_code": null
+    },
+    {
+      "code": "DC15",
+      "name": "O.R.Tambo",
+      "province_code": "EC",
+      "type": "district",
+      "parent_code": null
+    },
+    {
+      "code": "DC10",
+      "name": "Sarah Baartman",
+      "province_code": "EC",
+      "type": "district",
+      "parent_code": null
+    },
+    {
+      "code": "EC124",
+      "name": "Amahlathi",
+      "province_code": "EC",
+      "type": "local",
+      "parent_code": "DC12"
+    },
+    {
+      "code": "EC102",
+      "name": "Blue Crane Route",
+      "province_code": "EC",
+      "type": "local",
+      "parent_code": "DC10"
+    },
+    {
+      "code": "EC137",
+      "name": "Dr AB Xuma",
+      "province_code": "EC",
+      "type": "local",
+      "parent_code": "DC13"
+    },
+    {
+      "code": "EC101",
+      "name": "Dr Beyers Naude",
+      "province_code": "EC",
+      "type": "local",
+      "parent_code": "DC10"
+    },
+    {
+      "code": "EC141",
+      "name": "Elundini",
+      "province_code": "EC",
+      "type": "local",
+      "parent_code": "DC14"
+    },
+    {
+      "code": "EC136",
+      "name": "Emalahleni",
+      "province_code": "EC",
+      "type": "local",
+      "parent_code": "DC13"
+    },
+    {
+      "code": "EC139",
+      "name": "Enoch Mgijima",
+      "province_code": "EC",
+      "type": "local",
+      "parent_code": "DC13"
+    },
+    {
+      "code": "EC123",
+      "name": "Great Kei",
+      "province_code": "EC",
+      "type": "local",
+      "parent_code": "DC12"
+    },
+    {
+      "code": "EC153",
+      "name": "Ingquza Hill",
+      "province_code": "EC",
+      "type": "local",
+      "parent_code": "DC15"
+    },
+    {
+      "code": "EC135",
+      "name": "Intsika Yethu",
+      "province_code": "EC",
+      "type": "local",
+      "parent_code": "DC13"
+    },
+    {
+      "code": "EC131",
+      "name": "Inxuba Yethemba",
+      "province_code": "EC",
+      "type": "local",
+      "parent_code": "DC13"
+    },
+    {
+      "code": "EC157",
+      "name": "King Sabata Dalindyebo",
+      "province_code": "EC",
+      "type": "local",
+      "parent_code": "DC15"
+    },
+    {
+      "code": "EC109",
+      "name": "Kou-Kamma",
+      "province_code": "EC",
+      "type": "local",
+      "parent_code": "DC10"
+    },
+    {
+      "code": "EC108",
+      "name": "Kouga",
+      "province_code": "EC",
+      "type": "local",
+      "parent_code": "DC10"
+    },
+    {
+      "code": "EC156",
+      "name": "Kumkani Mhlontlo",
+      "province_code": "EC",
+      "type": "local",
+      "parent_code": "DC15"
+    },
+    {
+      "code": "EC104",
+      "name": "Makana",
+      "province_code": "EC",
+      "type": "local",
+      "parent_code": "DC10"
+    },
+    {
+      "code": "EC441",
+      "name": "Matatiele",
+      "province_code": "EC",
+      "type": "local",
+      "parent_code": "DC44"
+    },
+    {
+      "code": "EC121",
+      "name": "Mbhashe",
+      "province_code": "EC",
+      "type": "local",
+      "parent_code": "DC12"
+    },
+    {
+      "code": "EC122",
+      "name": "Mnquma",
+      "province_code": "EC",
+      "type": "local",
+      "parent_code": "DC12"
+    },
+    {
+      "code": "EC105",
+      "name": "Ndlambe",
+      "province_code": "EC",
+      "type": "local",
+      "parent_code": "DC10"
+    },
+    {
+      "code": "EC126",
+      "name": "Ngqushwa",
+      "province_code": "EC",
+      "type": "local",
+      "parent_code": "DC12"
+    },
+    {
+      "code": "EC444",
+      "name": "Ntabankulu",
+      "province_code": "EC",
+      "type": "local",
+      "parent_code": "DC44"
+    },
+    {
+      "code": "EC155",
+      "name": "Nyandeni",
+      "province_code": "EC",
+      "type": "local",
+      "parent_code": "DC15"
+    },
+    {
+      "code": "EC154",
+      "name": "Port St Johns",
+      "province_code": "EC",
+      "type": "local",
+      "parent_code": "DC15"
+    },
+    {
+      "code": "EC129",
+      "name": "Raymond Mhlaba",
+      "province_code": "EC",
+      "type": "local",
+      "parent_code": "DC12"
+    },
+    {
+      "code": "EC138",
+      "name": "Sakhisizwe",
+      "province_code": "EC",
+      "type": "local",
+      "parent_code": "DC13"
+    },
+    {
+      "code": "EC142",
+      "name": "Senqu",
+      "province_code": "EC",
+      "type": "local",
+      "parent_code": "DC14"
+    },
+    {
+      "code": "EC106",
+      "name": "Sundays River Valley",
+      "province_code": "EC",
+      "type": "local",
+      "parent_code": "DC10"
+    },
+    {
+      "code": "EC442",
+      "name": "Umzimvubu",
+      "province_code": "EC",
+      "type": "local",
+      "parent_code": "DC44"
+    },
+    {
+      "code": "EC145",
+      "name": "Walter Sisulu",
+      "province_code": "EC",
+      "type": "local",
+      "parent_code": "DC14"
+    },
+    {
+      "code": "EC443",
+      "name": "Winnie Madikizela-Mandela",
+      "province_code": "EC",
+      "type": "local",
+      "parent_code": "DC44"
+    },
+    {
+      "code": "BUF",
+      "name": "Buffalo City",
+      "province_code": "EC",
+      "type": "metropolitan",
+      "parent_code": null
+    },
+    {
+      "code": "NMA",
+      "name": "Nelson Mandela Bay",
+      "province_code": "EC",
+      "type": "metropolitan",
+      "parent_code": null
+    },
+    {
+      "code": "DC20",
+      "name": "Fezile Dabi",
+      "province_code": "FS",
+      "type": "district",
+      "parent_code": null
+    },
+    {
+      "code": "DC18",
+      "name": "Lejweleputswa",
+      "province_code": "FS",
+      "type": "district",
+      "parent_code": null
+    },
+    {
+      "code": "DC19",
+      "name": "Thabo Mofutsanyane",
+      "province_code": "FS",
+      "type": "district",
+      "parent_code": null
+    },
+    {
+      "code": "DC16",
+      "name": "Xhariep",
+      "province_code": "FS",
+      "type": "district",
+      "parent_code": null
+    },
+    {
+      "code": "FS192",
+      "name": "Dihlabeng",
+      "province_code": "FS",
+      "type": "local",
+      "parent_code": "DC19"
+    },
+    {
+      "code": "FS162",
+      "name": "Kopanong",
+      "province_code": "FS",
+      "type": "local",
+      "parent_code": "DC16"
+    },
+    {
+      "code": "FS161",
+      "name": "Letsemeng",
+      "province_code": "FS",
+      "type": "local",
+      "parent_code": "DC16"
+    },
+    {
+      "code": "FS205",
+      "name": "Mafube",
+      "province_code": "FS",
+      "type": "local",
+      "parent_code": "DC20"
+    },
+    {
+      "code": "FS194",
+      "name": "Maluti a Phofung",
+      "province_code": "FS",
+      "type": "local",
+      "parent_code": "DC19"
+    },
+    {
+      "code": "FS196",
+      "name": "Mantsopa",
+      "province_code": "FS",
+      "type": "local",
+      "parent_code": "DC19"
+    },
+    {
+      "code": "FS181",
+      "name": "Masilonyana",
+      "province_code": "FS",
+      "type": "local",
+      "parent_code": "DC18"
+    },
+    {
+      "code": "FS184",
+      "name": "Matjhabeng",
+      "province_code": "FS",
+      "type": "local",
+      "parent_code": "DC18"
+    },
+    {
+      "code": "FS204",
+      "name": "Metsimaholo",
+      "province_code": "FS",
+      "type": "local",
+      "parent_code": "DC20"
+    },
+    {
+      "code": "FS163",
+      "name": "Mohokare",
+      "province_code": "FS",
+      "type": "local",
+      "parent_code": "DC16"
+    },
+    {
+      "code": "FS201",
+      "name": "Moqhaka",
+      "province_code": "FS",
+      "type": "local",
+      "parent_code": "DC20"
+    },
+    {
+      "code": "FS185",
+      "name": "Nala",
+      "province_code": "FS",
+      "type": "local",
+      "parent_code": "DC18"
+    },
+    {
+      "code": "FS203",
+      "name": "Ngwathe",
+      "province_code": "FS",
+      "type": "local",
+      "parent_code": "DC20"
+    },
+    {
+      "code": "FS193",
+      "name": "Nketoana",
+      "province_code": "FS",
+      "type": "local",
+      "parent_code": "DC19"
+    },
+    {
+      "code": "FS195",
+      "name": "Phumelela",
+      "province_code": "FS",
+      "type": "local",
+      "parent_code": "DC19"
+    },
+    {
+      "code": "FS191",
+      "name": "Setsoto",
+      "province_code": "FS",
+      "type": "local",
+      "parent_code": "DC19"
+    },
+    {
+      "code": "FS182",
+      "name": "Tokologo",
+      "province_code": "FS",
+      "type": "local",
+      "parent_code": "DC18"
+    },
+    {
+      "code": "FS183",
+      "name": "Tswelopele",
+      "province_code": "FS",
+      "type": "local",
+      "parent_code": "DC18"
+    },
+    {
+      "code": "MAN",
+      "name": "Mangaung",
+      "province_code": "FS",
+      "type": "metropolitan",
+      "parent_code": null
+    },
+    {
+      "code": "DC42",
+      "name": "Sedibeng",
+      "province_code": "GP",
+      "type": "district",
+      "parent_code": null
+    },
+    {
+      "code": "DC48",
+      "name": "West Rand",
+      "province_code": "GP",
+      "type": "district",
+      "parent_code": null
+    },
+    {
+      "code": "GT421",
+      "name": "Emfuleni",
+      "province_code": "GP",
+      "type": "local",
+      "parent_code": "DC42"
+    },
+    {
+      "code": "GT423",
+      "name": "Lesedi",
+      "province_code": "GP",
+      "type": "local",
+      "parent_code": "DC42"
+    },
+    {
+      "code": "GT484",
+      "name": "Merafong City",
+      "province_code": "GP",
+      "type": "local",
+      "parent_code": "DC48"
+    },
+    {
+      "code": "GT422",
+      "name": "Midvaal",
+      "province_code": "GP",
+      "type": "local",
+      "parent_code": "DC42"
+    },
+    {
+      "code": "GT481",
+      "name": "Mogale City",
+      "province_code": "GP",
+      "type": "local",
+      "parent_code": "DC48"
+    },
+    {
+      "code": "GT485",
+      "name": "Rand West City",
+      "province_code": "GP",
+      "type": "local",
+      "parent_code": "DC48"
+    },
+    {
+      "code": "JHB",
+      "name": "City of Johannesburg",
+      "province_code": "GP",
+      "type": "metropolitan",
+      "parent_code": null
+    },
+    {
+      "code": "TSH",
+      "name": "City of Tshwane",
+      "province_code": "GP",
+      "type": "metropolitan",
+      "parent_code": null
+    },
+    {
+      "code": "EKU",
+      "name": "Ekurhuleni",
+      "province_code": "GP",
+      "type": "metropolitan",
+      "parent_code": null
+    },
+    {
+      "code": "DC25",
+      "name": "Amajuba",
+      "province_code": "KZN",
+      "type": "district",
+      "parent_code": null
+    },
+    {
+      "code": "DC43",
+      "name": "Harry Gwala",
+      "province_code": "KZN",
+      "type": "district",
+      "parent_code": null
+    },
+    {
+      "code": "DC28",
+      "name": "King Cetshwayo",
+      "province_code": "KZN",
+      "type": "district",
+      "parent_code": null
+    },
+    {
+      "code": "DC21",
+      "name": "Ugu",
+      "province_code": "KZN",
+      "type": "district",
+      "parent_code": null
+    },
+    {
+      "code": "DC22",
+      "name": "Umgungundlovu",
+      "province_code": "KZN",
+      "type": "district",
+      "parent_code": null
+    },
+    {
+      "code": "DC27",
+      "name": "Umkhanyakude",
+      "province_code": "KZN",
+      "type": "district",
+      "parent_code": null
+    },
+    {
+      "code": "DC24",
+      "name": "Umzinyathi",
+      "province_code": "KZN",
+      "type": "district",
+      "parent_code": null
+    },
+    {
+      "code": "DC23",
+      "name": "Uthukela",
+      "province_code": "KZN",
+      "type": "district",
+      "parent_code": null
+    },
+    {
+      "code": "DC26",
+      "name": "Zululand",
+      "province_code": "KZN",
+      "type": "district",
+      "parent_code": null
+    },
+    {
+      "code": "DC29",
+      "name": "iLembe",
+      "province_code": "KZN",
+      "type": "district",
+      "parent_code": null
+    },
+    {
+      "code": "KZN263",
+      "name": "Abaqulusi",
+      "province_code": "KZN",
+      "type": "local",
+      "parent_code": "DC26"
+    },
+    {
+      "code": "KZN238",
+      "name": "Alfred Duma",
+      "province_code": "KZN",
+      "type": "local",
+      "parent_code": "DC23"
+    },
+    {
+      "code": "KZN276",
+      "name": "Big Five Hlabisa",
+      "province_code": "KZN",
+      "type": "local",
+      "parent_code": "DC27"
+    },
+    {
+      "code": "KZN254",
+      "name": "Dannhauser",
+      "province_code": "KZN",
+      "type": "local",
+      "parent_code": "DC25"
+    },
+    {
+      "code": "KZN436",
+      "name": "Dr Nkosazana Dlamini Zuma",
+      "province_code": "KZN",
+      "type": "local",
+      "parent_code": "DC43"
+    },
+    {
+      "code": "KZN253",
+      "name": "Emadlangeni",
+      "province_code": "KZN",
+      "type": "local",
+      "parent_code": "DC25"
+    },
+    {
+      "code": "KZN241",
+      "name": "Endumeni",
+      "province_code": "KZN",
+      "type": "local",
+      "parent_code": "DC24"
+    },
+    {
+      "code": "KZN433",
+      "name": "Greater Kokstad",
+      "province_code": "KZN",
+      "type": "local",
+      "parent_code": "DC43"
+    },
+    {
+      "code": "KZN224",
+      "name": "Impendle",
+      "province_code": "KZN",
+      "type": "local",
+      "parent_code": "DC22"
+    },
+    {
+      "code": "KZN237",
+      "name": "Inkosi Langalibalele",
+      "province_code": "KZN",
+      "type": "local",
+      "parent_code": "DC23"
+    },
+    {
+      "code": "KZN275",
+      "name": "Inkosi Mtubatuba",
+      "province_code": "KZN",
+      "type": "local",
+      "parent_code": "DC27"
+    },
+    {
+      "code": "KZN434",
+      "name": "Johannes Phumani Phungula",
+      "province_code": "KZN",
+      "type": "local",
+      "parent_code": "DC43"
+    },
+    {
+      "code": "KZN272",
+      "name": "Jozini",
+      "province_code": "KZN",
+      "type": "local",
+      "parent_code": "DC27"
+    },
+    {
+      "code": "KZN292",
+      "name": "KwaDukuza",
+      "province_code": "KZN",
+      "type": "local",
+      "parent_code": "DC29"
+    },
+    {
+      "code": "KZN291",
+      "name": "Mandeni",
+      "province_code": "KZN",
+      "type": "local",
+      "parent_code": "DC29"
+    },
+    {
+      "code": "KZN294",
+      "name": "Maphumulo",
+      "province_code": "KZN",
+      "type": "local",
+      "parent_code": "DC29"
+    },
+    {
+      "code": "KZN281",
+      "name": "Mfolozi",
+      "province_code": "KZN",
+      "type": "local",
+      "parent_code": "DC28"
+    },
+    {
+      "code": "KZN226",
+      "name": "Mkhambathini",
+      "province_code": "KZN",
+      "type": "local",
+      "parent_code": "DC22"
+    },
+    {
+      "code": "KZN223",
+      "name": "Mpofana",
+      "province_code": "KZN",
+      "type": "local",
+      "parent_code": "DC22"
+    },
+    {
+      "code": "KZN244",
+      "name": "Msinga",
+      "province_code": "KZN",
+      "type": "local",
+      "parent_code": "DC24"
+    },
+    {
+      "code": "KZN285",
+      "name": "Mthonjaneni",
+      "province_code": "KZN",
+      "type": "local",
+      "parent_code": "DC28"
+    },
+    {
+      "code": "KZN293",
+      "name": "Ndwedwe",
+      "province_code": "KZN",
+      "type": "local",
+      "parent_code": "DC29"
+    },
+    {
+      "code": "KZN252",
+      "name": "Newcastle",
+      "province_code": "KZN",
+      "type": "local",
+      "parent_code": "DC25"
+    },
+    {
+      "code": "KZN286",
+      "name": "Nkandla",
+      "province_code": "KZN",
+      "type": "local",
+      "parent_code": "DC28"
+    },
+    {
+      "code": "KZN265",
+      "name": "Nongoma",
+      "province_code": "KZN",
+      "type": "local",
+      "parent_code": "DC26"
+    },
+    {
+      "code": "KZN242",
+      "name": "Nqutu",
+      "province_code": "KZN",
+      "type": "local",
+      "parent_code": "DC24"
+    },
+    {
+      "code": "KZN235",
+      "name": "Okhahlamba",
+      "province_code": "KZN",
+      "type": "local",
+      "parent_code": "DC23"
+    },
+    {
+      "code": "KZN216",
+      "name": "Ray Nkonyeni",
+      "province_code": "KZN",
+      "type": "local",
+      "parent_code": "DC21"
+    },
+    {
+      "code": "KZN227",
+      "name": "Richmond",
+      "province_code": "KZN",
+      "type": "local",
+      "parent_code": "DC22"
+    },
+    {
+      "code": "KZN225",
+      "name": "The Msunduzi",
+      "province_code": "KZN",
+      "type": "local",
+      "parent_code": "DC22"
+    },
+    {
+      "code": "KZN266",
+      "name": "Ulundi",
+      "province_code": "KZN",
+      "type": "local",
+      "parent_code": "DC26"
+    },
+    {
+      "code": "KZN212",
+      "name": "Umdoni",
+      "province_code": "KZN",
+      "type": "local",
+      "parent_code": "DC21"
+    },
+    {
+      "code": "KZN271",
+      "name": "Umhlabuyalingana",
+      "province_code": "KZN",
+      "type": "local",
+      "parent_code": "DC27"
+    },
+    {
+      "code": "KZN245",
+      "name": "Umvoti",
+      "province_code": "KZN",
+      "type": "local",
+      "parent_code": "DC24"
+    },
+    {
+      "code": "KZN435",
+      "name": "Umzimkhulu",
+      "province_code": "KZN",
+      "type": "local",
+      "parent_code": "DC43"
+    },
+    {
+      "code": "KZN213",
+      "name": "Umzumbe",
+      "province_code": "KZN",
+      "type": "local",
+      "parent_code": "DC21"
+    },
+    {
+      "code": "KZN261",
+      "name": "eDumbe",
+      "province_code": "KZN",
+      "type": "local",
+      "parent_code": "DC26"
+    },
+    {
+      "code": "KZN282",
+      "name": "uMhlathuze",
+      "province_code": "KZN",
+      "type": "local",
+      "parent_code": "DC28"
+    },
+    {
+      "code": "KZN284",
+      "name": "uMlalazi",
+      "province_code": "KZN",
+      "type": "local",
+      "parent_code": "DC28"
+    },
+    {
+      "code": "KZN222",
+      "name": "uMngeni",
+      "province_code": "KZN",
+      "type": "local",
+      "parent_code": "DC22"
+    },
+    {
+      "code": "KZN221",
+      "name": "uMshwathi",
+      "province_code": "KZN",
+      "type": "local",
+      "parent_code": "DC22"
+    },
+    {
+      "code": "KZN214",
+      "name": "uMuziwabantu",
+      "province_code": "KZN",
+      "type": "local",
+      "parent_code": "DC21"
+    },
+    {
+      "code": "KZN262",
+      "name": "uPhongolo",
+      "province_code": "KZN",
+      "type": "local",
+      "parent_code": "DC26"
+    },
+    {
+      "code": "ETH",
+      "name": "eThekwini",
+      "province_code": "KZN",
+      "type": "metropolitan",
+      "parent_code": null
+    },
+    {
+      "code": "DC35",
+      "name": "Capricorn",
+      "province_code": "LP",
+      "type": "district",
+      "parent_code": null
+    },
+    {
+      "code": "DC33",
+      "name": "Mopani",
+      "province_code": "LP",
+      "type": "district",
+      "parent_code": null
+    },
+    {
+      "code": "DC47",
+      "name": "Sekhukhune",
+      "province_code": "LP",
+      "type": "district",
+      "parent_code": null
+    },
+    {
+      "code": "DC34",
+      "name": "Vhembe",
+      "province_code": "LP",
+      "type": "district",
+      "parent_code": null
+    },
+    {
+      "code": "DC36",
+      "name": "Waterberg",
+      "province_code": "LP",
+      "type": "district",
+      "parent_code": null
+    },
+    {
+      "code": "LIM334",
+      "name": "Ba-Phalaborwa",
+      "province_code": "LP",
+      "type": "local",
+      "parent_code": "DC33"
+    },
+    {
+      "code": "LIM366",
+      "name": "Bela-Bela",
+      "province_code": "LP",
+      "type": "local",
+      "parent_code": "DC36"
+    },
+    {
+      "code": "LIM351",
+      "name": "Blouberg",
+      "province_code": "LP",
+      "type": "local",
+      "parent_code": "DC35"
+    },
+    {
+      "code": "LIM345",
+      "name": "Collins Chabane",
+      "province_code": "LP",
+      "type": "local",
+      "parent_code": "DC34"
+    },
+    {
+      "code": "LIM472",
+      "name": "Elias Motsoaledi",
+      "province_code": "LP",
+      "type": "local",
+      "parent_code": "DC47"
+    },
+    {
+      "code": "LIM471",
+      "name": "Ephraim Mogale",
+      "province_code": "LP",
+      "type": "local",
+      "parent_code": "DC47"
+    },
+    {
+      "code": "LIM476",
+      "name": "Fetakgomo Tubatse",
+      "province_code": "LP",
+      "type": "local",
+      "parent_code": "DC47"
+    },
+    {
+      "code": "LIM331",
+      "name": "Greater Giyani",
+      "province_code": "LP",
+      "type": "local",
+      "parent_code": "DC33"
+    },
+    {
+      "code": "LIM332",
+      "name": "Greater Letaba",
+      "province_code": "LP",
+      "type": "local",
+      "parent_code": "DC33"
+    },
+    {
+      "code": "LIM333",
+      "name": "Greater Tzaneen",
+      "province_code": "LP",
+      "type": "local",
+      "parent_code": "DC33"
+    },
+    {
+      "code": "LIM355",
+      "name": "Lepele-Nkumpi",
+      "province_code": "LP",
+      "type": "local",
+      "parent_code": "DC35"
+    },
+    {
+      "code": "LIM362",
+      "name": "Lephalale",
+      "province_code": "LP",
+      "type": "local",
+      "parent_code": "DC36"
+    },
+    {
+      "code": "LIM344",
+      "name": "Makhado",
+      "province_code": "LP",
+      "type": "local",
+      "parent_code": "DC34"
+    },
+    {
+      "code": "LIM473",
+      "name": "Makhuduthamaga",
+      "province_code": "LP",
+      "type": "local",
+      "parent_code": "DC47"
+    },
+    {
+      "code": "LIM335",
+      "name": "Maruleng",
+      "province_code": "LP",
+      "type": "local",
+      "parent_code": "DC33"
+    },
+    {
+      "code": "LIM368",
+      "name": "Modimolle-Mookgophong",
+      "province_code": "LP",
+      "type": "local",
+      "parent_code": "DC36"
+    },
+    {
+      "code": "LIM367",
+      "name": "Mogalakwena",
+      "province_code": "LP",
+      "type": "local",
+      "parent_code": "DC36"
+    },
+    {
+      "code": "LIM353",
+      "name": "Molemole",
+      "province_code": "LP",
+      "type": "local",
+      "parent_code": "DC35"
+    },
+    {
+      "code": "LIM341",
+      "name": "Musina",
+      "province_code": "LP",
+      "type": "local",
+      "parent_code": "DC34"
+    },
+    {
+      "code": "LIM354",
+      "name": "Polokwane",
+      "province_code": "LP",
+      "type": "local",
+      "parent_code": "DC35"
+    },
+    {
+      "code": "LIM361",
+      "name": "Thabazimbi",
+      "province_code": "LP",
+      "type": "local",
+      "parent_code": "DC36"
+    },
+    {
+      "code": "LIM343",
+      "name": "Thulamela",
+      "province_code": "LP",
+      "type": "local",
+      "parent_code": "DC34"
+    },
+    {
+      "code": "DC32",
+      "name": "Ehlanzeni",
+      "province_code": "MP",
+      "type": "district",
+      "parent_code": null
+    },
+    {
+      "code": "DC30",
+      "name": "Gert Sibande",
+      "province_code": "MP",
+      "type": "district",
+      "parent_code": null
+    },
+    {
+      "code": "DC31",
+      "name": "Nkangala",
+      "province_code": "MP",
+      "type": "district",
+      "parent_code": null
+    },
+    {
+      "code": "MP325",
+      "name": "Bushbuckridge",
+      "province_code": "MP",
+      "type": "local",
+      "parent_code": "DC32"
+    },
+    {
+      "code": "MP301",
+      "name": "Chief Albert Luthuli",
+      "province_code": "MP",
+      "type": "local",
+      "parent_code": "DC30"
+    },
+    {
+      "code": "MP326",
+      "name": "City of Mbombela",
+      "province_code": "MP",
+      "type": "local",
+      "parent_code": "DC32"
+    },
+    {
+      "code": "MP306",
+      "name": "Dipaleseng",
+      "province_code": "MP",
+      "type": "local",
+      "parent_code": "DC30"
+    },
+    {
+      "code": "MP316",
+      "name": "Dr JS Moroka",
+      "province_code": "MP",
+      "type": "local",
+      "parent_code": "DC31"
+    },
+    {
+      "code": "MP304",
+      "name": "Dr Pixley Ka Isaka Seme",
+      "province_code": "MP",
+      "type": "local",
+      "parent_code": "DC30"
+    },
+    {
+      "code": "MP314",
+      "name": "Emakhazeni",
+      "province_code": "MP",
+      "type": "local",
+      "parent_code": "DC31"
+    },
+    {
+      "code": "MP312",
+      "name": "Emalahleni",
+      "province_code": "MP",
+      "type": "local",
+      "parent_code": "DC31"
+    },
+    {
+      "code": "MP307",
+      "name": "Govan Mbeki",
+      "province_code": "MP",
+      "type": "local",
+      "parent_code": "DC30"
+    },
+    {
+      "code": "MP305",
+      "name": "Lekwa",
+      "province_code": "MP",
+      "type": "local",
+      "parent_code": "DC30"
+    },
+    {
+      "code": "MP303",
+      "name": "Mkhondo",
+      "province_code": "MP",
+      "type": "local",
+      "parent_code": "DC30"
+    },
+    {
+      "code": "MP302",
+      "name": "Msukaligwa",
+      "province_code": "MP",
+      "type": "local",
+      "parent_code": "DC30"
+    },
+    {
+      "code": "MP324",
+      "name": "Nkomazi",
+      "province_code": "MP",
+      "type": "local",
+      "parent_code": "DC32"
+    },
+    {
+      "code": "MP313",
+      "name": "Steve Tshwete",
+      "province_code": "MP",
+      "type": "local",
+      "parent_code": "DC31"
+    },
+    {
+      "code": "MP321",
+      "name": "Thaba Chweu",
+      "province_code": "MP",
+      "type": "local",
+      "parent_code": "DC32"
+    },
+    {
+      "code": "MP315",
+      "name": "Thembisile Hani",
+      "province_code": "MP",
+      "type": "local",
+      "parent_code": "DC31"
+    },
+    {
+      "code": "MP311",
+      "name": "Victor Khanye",
+      "province_code": "MP",
+      "type": "local",
+      "parent_code": "DC31"
+    },
+    {
+      "code": "DC9",
+      "name": "Frances Baard",
+      "province_code": "NC",
+      "type": "district",
+      "parent_code": null
+    },
+    {
+      "code": "DC45",
+      "name": "John Taolo Gaetsewe",
+      "province_code": "NC",
+      "type": "district",
+      "parent_code": null
+    },
+    {
+      "code": "DC6",
+      "name": "Namakwa",
+      "province_code": "NC",
+      "type": "district",
+      "parent_code": null
+    },
+    {
+      "code": "DC7",
+      "name": "Pixley ka Seme",
+      "province_code": "NC",
+      "type": "district",
+      "parent_code": null
+    },
+    {
+      "code": "DC8",
+      "name": "Z F Mgcawu",
+      "province_code": "NC",
+      "type": "district",
+      "parent_code": null
+    },
+    {
+      "code": "NC084",
+      "name": "!Kheis",
+      "province_code": "NC",
+      "type": "local",
+      "parent_code": "DC8"
+    },
+    {
+      "code": "NC087",
+      "name": "Dawid Kruiper",
+      "province_code": "NC",
+      "type": "local",
+      "parent_code": "DC8"
+    },
+    {
+      "code": "NC092",
+      "name": "Dikgatlong",
+      "province_code": "NC",
+      "type": "local",
+      "parent_code": "DC9"
+    },
+    {
+      "code": "NC073",
+      "name": "Emthanjeni",
+      "province_code": "NC",
+      "type": "local",
+      "parent_code": "DC7"
+    },
+    {
+      "code": "NC452",
+      "name": "Ga-Segonyana",
+      "province_code": "NC",
+      "type": "local",
+      "parent_code": "DC45"
+    },
+    {
+      "code": "NC453",
+      "name": "Gamagara",
+      "province_code": "NC",
+      "type": "local",
+      "parent_code": "DC45"
+    },
+    {
+      "code": "NC065",
+      "name": "Hantam",
+      "province_code": "NC",
+      "type": "local",
+      "parent_code": "DC6"
+    },
+    {
+      "code": "NC451",
+      "name": "Joe Morolong",
+      "province_code": "NC",
+      "type": "local",
+      "parent_code": "DC45"
+    },
+    {
+      "code": "NC082",
+      "name": "Kai !Garib",
+      "province_code": "NC",
+      "type": "local",
+      "parent_code": "DC8"
+    },
+    {
+      "code": "NC064",
+      "name": "Kamiesberg",
+      "province_code": "NC",
+      "type": "local",
+      "parent_code": "DC6"
+    },
+    {
+      "code": "NC074",
+      "name": "Kareeberg",
+      "province_code": "NC",
+      "type": "local",
+      "parent_code": "DC7"
+    },
+    {
+      "code": "NC066",
+      "name": "Karoo Hoogland",
+      "province_code": "NC",
+      "type": "local",
+      "parent_code": "DC6"
+    },
+    {
+      "code": "NC086",
+      "name": "Kgatelopele",
+      "province_code": "NC",
+      "type": "local",
+      "parent_code": "DC8"
+    },
+    {
+      "code": "NC067",
+      "name": "Khâi-Ma",
+      "province_code": "NC",
+      "type": "local",
+      "parent_code": "DC6"
+    },
+    {
+      "code": "NC093",
+      "name": "Magareng",
+      "province_code": "NC",
+      "type": "local",
+      "parent_code": "DC9"
+    },
+    {
+      "code": "NC062",
+      "name": "Nama Khoi",
+      "province_code": "NC",
+      "type": "local",
+      "parent_code": "DC6"
+    },
+    {
+      "code": "NC094",
+      "name": "Phokwane",
+      "province_code": "NC",
+      "type": "local",
+      "parent_code": "DC9"
+    },
+    {
+      "code": "NC075",
+      "name": "Renosterberg",
+      "province_code": "NC",
+      "type": "local",
+      "parent_code": "DC7"
+    },
+    {
+      "code": "NC061",
+      "name": "Richtersveld",
+      "province_code": "NC",
+      "type": "local",
+      "parent_code": "DC6"
+    },
+    {
+      "code": "NC078",
+      "name": "Siyancuma",
+      "province_code": "NC",
+      "type": "local",
+      "parent_code": "DC7"
+    },
+    {
+      "code": "NC077",
+      "name": "Siyathemba",
+      "province_code": "NC",
+      "type": "local",
+      "parent_code": "DC7"
+    },
+    {
+      "code": "NC091",
+      "name": "Sol Plaatje",
+      "province_code": "NC",
+      "type": "local",
+      "parent_code": "DC9"
+    },
+    {
+      "code": "NC076",
+      "name": "Thembelihle",
+      "province_code": "NC",
+      "type": "local",
+      "parent_code": "DC7"
+    },
+    {
+      "code": "NC085",
+      "name": "Tsantsabane",
+      "province_code": "NC",
+      "type": "local",
+      "parent_code": "DC8"
+    },
+    {
+      "code": "NC071",
+      "name": "Ubuntu",
+      "province_code": "NC",
+      "type": "local",
+      "parent_code": "DC7"
+    },
+    {
+      "code": "NC072",
+      "name": "Umsobomvu",
+      "province_code": "NC",
+      "type": "local",
+      "parent_code": "DC7"
+    },
+    {
+      "code": "DC37",
+      "name": "Bojanala",
+      "province_code": "NW",
+      "type": "district",
+      "parent_code": null
+    },
+    {
+      "code": "DC40",
+      "name": "Dr Kenneth Kaunda",
+      "province_code": "NW",
+      "type": "district",
+      "parent_code": null
+    },
+    {
+      "code": "DC39",
+      "name": "Dr Ruth Segomotsi Mompati",
+      "province_code": "NW",
+      "type": "district",
+      "parent_code": null
+    },
+    {
+      "code": "DC38",
+      "name": "Ngaka Modiri Molema",
+      "province_code": "NW",
+      "type": "district",
+      "parent_code": null
+    },
+    {
+      "code": "NW403",
+      "name": "City of Matlosana",
+      "province_code": "NW",
+      "type": "local",
+      "parent_code": "DC40"
+    },
+    {
+      "code": "NW384",
+      "name": "Ditsobotla",
+      "province_code": "NW",
+      "type": "local",
+      "parent_code": "DC38"
+    },
+    {
+      "code": "NW394",
+      "name": "Greater Taung",
+      "province_code": "NW",
+      "type": "local",
+      "parent_code": "DC39"
+    },
+    {
+      "code": "NW405",
+      "name": "JB Marks",
+      "province_code": "NW",
+      "type": "local",
+      "parent_code": "DC40"
+    },
+    {
+      "code": "NW397",
+      "name": "Kagisano/Molopo",
+      "province_code": "NW",
+      "type": "local",
+      "parent_code": "DC39"
+    },
+    {
+      "code": "NW374",
+      "name": "Kgetlengrivier",
+      "province_code": "NW",
+      "type": "local",
+      "parent_code": "DC37"
+    },
+    {
+      "code": "NW396",
+      "name": "Lekwa-Teemane",
+      "province_code": "NW",
+      "type": "local",
+      "parent_code": "DC39"
+    },
+    {
+      "code": "NW372",
+      "name": "Local Municipality of Madibeng",
+      "province_code": "NW",
+      "type": "local",
+      "parent_code": "DC37"
+    },
+    {
+      "code": "NW383",
+      "name": "Mafikeng",
+      "province_code": "NW",
+      "type": "local",
+      "parent_code": "DC38"
+    },
+    {
+      "code": "NW393",
+      "name": "Mamusa",
+      "province_code": "NW",
+      "type": "local",
+      "parent_code": "DC39"
+    },
+    {
+      "code": "NW404",
+      "name": "Maquassi Hills",
+      "province_code": "NW",
+      "type": "local",
+      "parent_code": "DC40"
+    },
+    {
+      "code": "NW371",
+      "name": "Moretele",
+      "province_code": "NW",
+      "type": "local",
+      "parent_code": "DC37"
+    },
+    {
+      "code": "NW375",
+      "name": "Moses Kotane",
+      "province_code": "NW",
+      "type": "local",
+      "parent_code": "DC37"
+    },
+    {
+      "code": "NW392",
+      "name": "Naledi",
+      "province_code": "NW",
+      "type": "local",
+      "parent_code": "DC39"
+    },
+    {
+      "code": "NW385",
+      "name": "Ramotshere Moiloa",
+      "province_code": "NW",
+      "type": "local",
+      "parent_code": "DC38"
+    },
+    {
+      "code": "NW381",
+      "name": "Ratlou",
+      "province_code": "NW",
+      "type": "local",
+      "parent_code": "DC38"
+    },
+    {
+      "code": "NW373",
+      "name": "Rustenburg",
+      "province_code": "NW",
+      "type": "local",
+      "parent_code": "DC37"
+    },
+    {
+      "code": "NW382",
+      "name": "Tswaing",
+      "province_code": "NW",
+      "type": "local",
+      "parent_code": "DC38"
+    },
+    {
+      "code": "DC2",
+      "name": "Cape Winelands",
+      "province_code": "WC",
+      "type": "district",
+      "parent_code": null
+    },
+    {
+      "code": "DC5",
+      "name": "Central Karoo",
+      "province_code": "WC",
+      "type": "district",
+      "parent_code": null
+    },
+    {
+      "code": "DC4",
+      "name": "Garden Route",
+      "province_code": "WC",
+      "type": "district",
+      "parent_code": null
+    },
+    {
+      "code": "DC3",
+      "name": "Overberg",
+      "province_code": "WC",
+      "type": "district",
+      "parent_code": null
+    },
+    {
+      "code": "DC1",
+      "name": "West Coast",
+      "province_code": "WC",
+      "type": "district",
+      "parent_code": null
+    },
+    {
+      "code": "WC053",
+      "name": "Beaufort West",
+      "province_code": "WC",
+      "type": "local",
+      "parent_code": "DC5"
+    },
+    {
+      "code": "WC013",
+      "name": "Bergrivier",
+      "province_code": "WC",
+      "type": "local",
+      "parent_code": "DC1"
+    },
+    {
+      "code": "WC047",
+      "name": "Bitou",
+      "province_code": "WC",
+      "type": "local",
+      "parent_code": "DC4"
+    },
+    {
+      "code": "WC025",
+      "name": "Breede Valley",
+      "province_code": "WC",
+      "type": "local",
+      "parent_code": "DC2"
+    },
+    {
+      "code": "WC033",
+      "name": "Cape Agulhas",
+      "province_code": "WC",
+      "type": "local",
+      "parent_code": "DC3"
+    },
+    {
+      "code": "WC012",
+      "name": "Cederberg",
+      "province_code": "WC",
+      "type": "local",
+      "parent_code": "DC1"
+    },
+    {
+      "code": "WC023",
+      "name": "Drakenstein",
+      "province_code": "WC",
+      "type": "local",
+      "parent_code": "DC2"
+    },
+    {
+      "code": "WC044",
+      "name": "George",
+      "province_code": "WC",
+      "type": "local",
+      "parent_code": "DC4"
+    },
+    {
+      "code": "WC042",
+      "name": "Hessequa",
+      "province_code": "WC",
+      "type": "local",
+      "parent_code": "DC4"
+    },
+    {
+      "code": "WC041",
+      "name": "Kannaland",
+      "province_code": "WC",
+      "type": "local",
+      "parent_code": "DC4"
+    },
+    {
+      "code": "WC048",
+      "name": "Knysna",
+      "province_code": "WC",
+      "type": "local",
+      "parent_code": "DC4"
+    },
+    {
+      "code": "WC051",
+      "name": "Laingsburg",
+      "province_code": "WC",
+      "type": "local",
+      "parent_code": "DC5"
+    },
+    {
+      "code": "WC026",
+      "name": "Langeberg",
+      "province_code": "WC",
+      "type": "local",
+      "parent_code": "DC2"
+    },
+    {
+      "code": "WC011",
+      "name": "Matzikama",
+      "province_code": "WC",
+      "type": "local",
+      "parent_code": "DC1"
+    },
+    {
+      "code": "WC043",
+      "name": "Mossel Bay",
+      "province_code": "WC",
+      "type": "local",
+      "parent_code": "DC4"
+    },
+    {
+      "code": "WC045",
+      "name": "Oudtshoorn",
+      "province_code": "WC",
+      "type": "local",
+      "parent_code": "DC4"
+    },
+    {
+      "code": "WC032",
+      "name": "Overstrand",
+      "province_code": "WC",
+      "type": "local",
+      "parent_code": "DC3"
+    },
+    {
+      "code": "WC052",
+      "name": "Prince Albert",
+      "province_code": "WC",
+      "type": "local",
+      "parent_code": "DC5"
+    },
+    {
+      "code": "WC014",
+      "name": "Saldanha Bay",
+      "province_code": "WC",
+      "type": "local",
+      "parent_code": "DC1"
+    },
+    {
+      "code": "WC024",
+      "name": "Stellenbosch",
+      "province_code": "WC",
+      "type": "local",
+      "parent_code": "DC2"
+    },
+    {
+      "code": "WC015",
+      "name": "Swartland",
+      "province_code": "WC",
+      "type": "local",
+      "parent_code": "DC1"
+    },
+    {
+      "code": "WC034",
+      "name": "Swellendam",
+      "province_code": "WC",
+      "type": "local",
+      "parent_code": "DC3"
+    },
+    {
+      "code": "WC031",
+      "name": "Theewaterskloof",
+      "province_code": "WC",
+      "type": "local",
+      "parent_code": "DC3"
+    },
+    {
+      "code": "WC022",
+      "name": "Witzenberg",
+      "province_code": "WC",
+      "type": "local",
+      "parent_code": "DC2"
+    },
+    {
+      "code": "CPT",
+      "name": "City of Cape Town",
+      "province_code": "WC",
+      "type": "metropolitan",
+      "parent_code": null
+    }
+  ]
+}
