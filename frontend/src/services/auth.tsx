@@ -30,9 +30,14 @@ function errorStatus(reason: unknown) { return reason instanceof AuthRequestErro
 function errorMessage(reason: unknown, fallback: string) { return reason instanceof Error ? reason.message : fallback; }
 async function authRequest(path: string, body: unknown) {
   if (!SUPABASE_URL || !SUPABASE_KEY) throw new Error('Authentication is not configured. Set the Supabase URL and public anon key in frontend/.env.local.');
-  const response = await fetch(`${SUPABASE_URL}/auth/v1/${path}`, { method: 'POST', headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  let response: Response;
+  try {
+    response = await fetch(`${apiBase}/auth/gateway/${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  } catch {
+    throw new Error('Cannot reach the EcoPulse backend. Check that it is running on port 8000 and retry.');
+  }
   const result = await response.json().catch(() => ({}));
-  if (!response.ok) throw new AuthRequestError(result.msg ?? result.message ?? result.error_description ?? 'Authentication request failed.', response.status);
+  if (!response.ok) throw new AuthRequestError(result.detail ?? result.msg ?? result.message ?? result.error_description ?? 'Authentication request failed.', response.status);
   return result;
 }
 
@@ -45,7 +50,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const accessToken = useCallback(() => currentSession?.access_token ?? null, [currentSession]);
 
   const resolveUser = useCallback(async (token: string) => {
-    const response = await fetch(`${apiBase}/auth/me`, { headers: { Authorization: `Bearer ${token}` } });
+    let response: Response;
+    try {
+      response = await fetch(`${apiBase}/auth/me`, { headers: { Authorization: `Bearer ${token}` } });
+    } catch {
+      throw new Error(`Sign-in succeeded, but EcoPulse could not reach its backend at ${apiBase}. Check that the backend is running and allows this website's address, then retry verification.`);
+    }
     if (!response.ok) {
       const result = await response.json().catch(() => ({}));
       throw new AuthRequestError(result.detail ?? (response.status === 401 ? 'Your session expired. Please sign in again.' : `Unable to verify your account (HTTP ${response.status}).`), response.status);
@@ -118,12 +128,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const hashToken = new URLSearchParams(window.location.hash.slice(1)).get('access_token');
     const token = currentSession?.access_token ?? hashToken;
     if (!token) throw new Error('Use the password reset link sent to your email first.');
-    const response = await fetch(`${SUPABASE_URL}/auth/v1/user`, { method: 'PUT', headers: { apikey: SUPABASE_KEY!, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) });
+    const response = await fetch(`${apiBase}/auth/gateway/user`, { method: 'PUT', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) });
     if (!response.ok) throw new Error('Could not update your password. Request a fresh reset link and try again.');
   }, [currentSession]);
   const logout = useCallback(async () => {
     const token = currentSession?.access_token;
-    if (token && SUPABASE_URL && SUPABASE_KEY) await fetch(`${SUPABASE_URL}/auth/v1/logout`, { method: 'POST', headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${token}` } }).catch(() => undefined);
+    if (token && SUPABASE_URL && SUPABASE_KEY) await fetch(`${apiBase}/auth/gateway/logout`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } }).catch(() => undefined);
     saveSession(null); setCurrentSession(null); setUser(null);
   }, [currentSession]);
 

@@ -8,6 +8,7 @@ from datetime import date
 from typing import Any
 
 import httpx
+from . import network
 
 FORECAST_TTL = int(os.getenv("WEATHER_FORECAST_CACHE_SECONDS", "1800"))
 CURRENT_TTL = int(os.getenv("WEATHER_CURRENT_CACHE_SECONDS", "900"))
@@ -15,8 +16,12 @@ HISTORY_TTL = int(os.getenv("WEATHER_HISTORY_CACHE_SECONDS", "86400"))
 FORECAST_URL = "https://customer-api.open-meteo.com/v1/forecast" if os.getenv("OPEN_METEO_API_KEY", "").strip() else "https://api.open-meteo.com/v1/forecast"
 ARCHIVE_URL = "https://customer-api.open-meteo.com/v1/archive" if os.getenv("OPEN_METEO_API_KEY", "").strip() else "https://archive-api.open-meteo.com/v1/archive"
 GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
+REVERSE_GEOCODING_URL = "https://nominatim.openstreetmap.org/reverse"
 API_KEY = os.getenv("OPEN_METEO_API_KEY", "").strip()
 _cache: dict[str, tuple[float, Any]] = {}
+_reverse_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+_reverse_request_lock = asyncio.Lock()
+_last_reverse_request = 0.0
 
 
 async def _request(url: str, params: dict[str, Any], ttl: int) -> dict[str, Any]:
@@ -25,31 +30,33 @@ async def _request(url: str, params: dict[str, Any], ttl: int) -> dict[str, Any]
         query["apikey"] = API_KEY
     key = url + "?" + "&".join(f"{k}={query[k]}" for k in sorted(query))
     cached = _cache.get(key)
-    if cached and time.monotonic() - cached[0] < ttl:
+    if ttl > 0 and cached and time.monotonic() - cached[0] < ttl:
         return cached[1]
     last_error: Exception | None = None
-    async with httpx.AsyncClient(timeout=12) as client:
+    async with httpx.AsyncClient(timeout=12, transport=network.AsyncDNSFallbackTransport()) as client:
         for attempt in range(3):
             try:
-                response = await client.get(url, params=query)
+                headers = {"User-Agent": "EcoPulse community reporting/0.2 (OpenStreetMap reverse geocoding)"} if url == REVERSE_GEOCODING_URL else None
+                response = await client.get(url, params=query, headers=headers)
                 if 400 <= response.status_code < 500 and response.status_code != 429:
                     response.raise_for_status()
                 response.raise_for_status()
                 payload = response.json()
                 if not isinstance(payload, dict):
                     raise ValueError("Weather provider returned an invalid response")
-                _cache[key] = (time.monotonic(), payload)
+                if ttl > 0:
+                    _cache[key] = (time.monotonic(), payload)
                 return payload
             except httpx.HTTPStatusError as exc:
                 if 400 <= exc.response.status_code < 500 and exc.response.status_code != 429:
                     raise
                 last_error = exc
                 if attempt < 2:
-                    await asyncio.sleep(0.25 * (2 ** attempt))
+                    await asyncio.sleep(max(1.0, 0.25 * (2 ** attempt)) if url == REVERSE_GEOCODING_URL else 0.25 * (2 ** attempt))
             except (httpx.HTTPError, ValueError) as exc:
                 last_error = exc
                 if attempt < 2:
-                    await asyncio.sleep(0.25 * (2 ** attempt))
+                    await asyncio.sleep(max(1.0, 0.25 * (2 ** attempt)) if url == REVERSE_GEOCODING_URL else 0.25 * (2 ** attempt))
     assert last_error is not None
     raise last_error
 
@@ -99,5 +106,48 @@ async def search_locations(name: str) -> list[dict[str, Any]]:
     return [{"name":x.get("name"),"admin1":x.get("admin1"),"admin2":x.get("admin2"),"country":x.get("country"),"latitude":x.get("latitude"),"longitude":x.get("longitude"),"timezone":x.get("timezone")} for x in raw.get("results",[]) if x.get("latitude") is not None and x.get("longitude") is not None]
 
 
+async def reverse_location(latitude: float, longitude: float) -> dict[str, Any]:
+    """Return a privacy-conscious nearby label and address fields for a map point."""
+    global _last_reverse_request
+    # Four decimals is roughly an 11 m grid: close enough for a nearby street
+    # label, while avoiding a cache of exact GPS coordinates.
+    lat, lon = round(latitude, 4), round(longitude, 4)
+    key = f"{lat:.4f},{lon:.4f}"
+    cached = _reverse_cache.get(key)
+    if cached and time.monotonic() - cached[0] < 86400:
+        return cached[1]
+    async with _reverse_request_lock:
+        cached = _reverse_cache.get(key)
+        if cached and time.monotonic() - cached[0] < 86400:
+            return cached[1]
+        wait = 1.0 - (time.monotonic() - _last_reverse_request)
+        if wait > 0:
+            await asyncio.sleep(wait)
+        _last_reverse_request = time.monotonic()
+        params = {"lat": lat, "lon": lon, "format": "jsonv2", "addressdetails": 1, "zoom": 18}
+        raw = await _request(REVERSE_GEOCODING_URL, params, 0)
+    address = raw.get("address") or {}
+    locality = next((address.get(key) for key in (
+        "suburb", "neighbourhood", "quarter", "village", "town", "city", "municipality", "hamlet"
+    ) if address.get(key)), None)
+    label_parts = []
+    for value in (address.get("road") or address.get("pedestrian"), locality, address.get("state")):
+        if value and value not in label_parts:
+            label_parts.append(value)
+    result = {
+        "label": ", ".join(label_parts),
+        "locality": locality,
+        "province": address.get("state"),
+        "municipality": address.get("municipality"),
+        "country_code": address.get("country_code"),
+        "source": "OpenStreetMap Nominatim",
+    }
+    if len(_reverse_cache) >= 1000:
+        _reverse_cache.pop(next(iter(_reverse_cache)))
+    _reverse_cache[key] = (time.monotonic(), result)
+    return result
+
+
 async def clear_weather_cache() -> None:
     _cache.clear()
+    _reverse_cache.clear()

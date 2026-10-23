@@ -10,6 +10,7 @@ from backend.app.main import app
 def client(tmp_path, monkeypatch):
     monkeypatch.setattr("backend.app.main.DB_PATH", tmp_path / "test.sqlite3")
     monkeypatch.setenv("ECOPULSE_LOCAL_DEMO", "true")
+    monkeypatch.setenv("DATABASE_URL", "")
     with TestClient(app) as test_client:
         yield test_client
 

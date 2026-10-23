@@ -23,7 +23,7 @@ Public registration provisions resident accounts only. On first login, a residen
 
 Residents can take or select a JPEG, PNG, or WebP photo, optionally request analysis, review or change the suggested category, and submit with or without a photo. FastAPI checks the decoded image, restricts it to 10 MB and 25 megapixels, fixes orientation, converts to RGB, resizes it, and strips metadata before inference/storage. Supabase Storage is private; the API issues short-lived signed links only after checking the resident or municipal incident scope. The optional model-training consent is false by default and is stored separately from AI and resident-confirmed labels.
 
-No incident classifier or model weights ship with this repository. With `ECOPULSE_INCIDENT_MODEL` unset, the AI endpoint explicitly reports that analysis is unavailable and residents can continue manually. A deployment may set it to a trusted installed `module:function` adapter. That callable receives a normalized Pillow image and must return `category`, `observations` (actual visual evidence), and optionally `subcategory`, `confidence`, `severity`, `model_name`, and `model_version`. The adapter must be evaluated against a representative held-out dataset before use; EcoPulse does not claim accuracy. The generated explanation only paraphrases the adapter's observations and says the image cannot verify the cause.
+The supplied custom YOLO model at `backend/models/best.pt` now powers infrastructure detection. Gemini provides evidence-bound structured interpretation for uncertain predictions, written reports and resident corrections. Keys stay in backend environment variables. See [infrastructure reporting setup and verification](docs/infrastructure-reporting.md) for department routing, permissions, model configuration and demonstration steps.
 
 ## Main API flows
 
@@ -38,7 +38,7 @@ No incident classifier or model weights ship with this repository. With `ECOPULS
 
 Run backend checks from the repository root with `PYTHONPATH=.` and `backend/venv/Scripts/python.exe -m pytest backend/tests -q`. Image preprocessing tests require Pillow; multipart routes require `python-multipart`; both are declared in `backend/requirements.txt`. Frontend type checking uses `frontend/node_modules/.bin/tsc -b`.
 
-The Supabase migrations have not been applied in this workspace because database credentials are not configured. No pretrained incident model is included. Privacy/terms pages remain drafts; some community-resources, household management, and advanced analytics sections still depend on future data integration. SQLite mode is isolated local demo storage and is not appropriate for real resident records or public deployment.
+Supabase migration 008 is applied and department/API/RLS isolation has been verified using rollback-only fixtures. The supplied custom YOLO weights load successfully; representative-image accuracy is not yet evaluated. Privacy/terms pages remain drafts; some community-resources, household management, and advanced analytics sections still depend on future data integration. SQLite mode is isolated local demo storage and is not appropriate for real resident records or public deployment.
 
 Weather uses Open-Meteo and transparent rule-based screening; it is not emergency guidance. Keep `SUPABASE_SERVICE_ROLE_KEY` out of frontend configuration and Git.
 

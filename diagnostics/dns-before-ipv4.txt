@@ -1,0 +1,9 @@
+
+Configuration for interface "Ethernet"
+    DNS servers configured through DHCP:  192.168.0.1
+    Register with which suffix:           Primary only
+
+Configuration for interface "Loopback Pseudo-Interface 1"
+    Statically Configured DNS Servers:    None
+    Register with which suffix:           Primary only
+

@@ -22,8 +22,11 @@ from dotenv import load_dotenv
 from pydantic import BaseModel, Field, model_validator
 load_dotenv(Path(__file__).resolve().parents[1]/".env")
 from .ai.climate_risk import ENGINE_VERSION, assess_dry_conditions, evaluate_forecast
-from .services import weather_service
+from .services import weather_service, network
 from .workspace import router as workspace_router
+from .services.infrastructure_location import resolve_municipality
+from .infrastructure import router as infrastructure_router
+from .auth_gateway import router as auth_gateway_router
 from .security import database_url, local_demo_enabled, optional_current_user, postgres_connection
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -54,12 +57,21 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="EcoPulse AI Platform API", version="0.2.0", description="Shared resident, municipal, and platform services. Weather data is sourced from Open-Meteo.", lifespan=lifespan)
 app.include_router(workspace_router)
+app.include_router(infrastructure_router)
+app.include_router(auth_gateway_router)
 origins = [x.strip() for x in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",") if x.strip()]
-app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_methods=["GET", "POST", "PATCH", "PUT", "OPTIONS"], allow_headers=["Authorization", "Content-Type"])
+# Development URLs may use either loopback hostname, including Vite's fallback
+# and preview ports. Production origins remain explicitly configured.
+local_origin_regex = r"http://(?:localhost|127\.0\.0\.1|\[::1\]):(?:517[3-9]|4173)" if any(
+    origin in {"http://localhost:5173", "http://127.0.0.1:5173"} for origin in origins
+) else None
+app.add_middleware(CORSMiddleware, allow_origins=origins, allow_origin_regex=local_origin_regex, allow_credentials=True, allow_methods=["GET", "POST", "PATCH", "PUT", "OPTIONS"], allow_headers=["Authorization", "Content-Type"])
 
 
 @app.exception_handler(RequestValidationError)
 async def handle_validation_error(request: Request, exc: RequestValidationError):
+    if request.url.path.startswith('/api/v1/auth/gateway/'):
+        return JSONResponse({'detail':'Check the authentication details and try again.'},status_code=422,headers={'Cache-Control':'no-store'})
     if request.url.path in {"/api/v1/admin/municipal-officials", "/api/v1/auth/register-local"}:
         # Do not echo password inputs in FastAPI's default validation error response.
         return JSONResponse({"detail": "Check the full name, email, province, municipality and password (8-128 characters)."}, status_code=422)
@@ -68,7 +80,7 @@ async def handle_validation_error(request: Request, exc: RequestValidationError)
 
 @app.middleware("http")
 async def limit_incident_upload_body(request: Request, call_next):
-    if request.method == "POST" and request.url.path in {"/api/v1/incidents/analyze-image", "/api/v1/incidents/submit"}:
+    if request.method == "POST" and request.url.path in {"/api/v1/incidents/analyze-image", "/api/v1/incidents/submit", "/api/v1/infrastructure/analyse", "/api/v1/infrastructure/detect"}:
         length=request.headers.get("content-length")
         if not length or not length.isdigit() or int(length)>11*1024*1024:
             return JSONResponse({"detail":"Incident image requests must include a Content-Length and stay below 11 MB."},status_code=413)
@@ -96,6 +108,16 @@ class Incident(BaseModel):
     analysis_id: str | None = None
     training_consent: bool = False
     submission_key: uuid.UUID | None = None
+    municipality_id: uuid.UUID | None = None
+
+    @model_validator(mode='after')
+    def validate_infrastructure(self):
+        from .ai.incident_vision import ALLOWED_CATEGORIES
+        if self.category not in ALLOWED_CATEGORIES:
+            raise ValueError('Choose a supported municipal service category')
+        if (self.latitude is None) != (self.longitude is None):
+            raise ValueError('Latitude and longitude must be provided together')
+        return self
 
 
 def _incident_form(form: Any) -> Incident:
@@ -119,6 +141,8 @@ async def _submitted_image(request: Request) -> tuple[Incident, bytes | None]:
 
 
 @app.post("/api/v1/incidents/analyze-image")
+@app.post("/api/v1/infrastructure/analyse")
+@app.post("/api/v1/infrastructure/detect")
 async def analyze_incident_image(request: Request, user: dict[str, Any] | None = Depends(optional_current_user)):
     if not user:
         raise HTTPException(status_code=401, detail="Sign in as a resident before analysing an incident image.")
@@ -129,30 +153,34 @@ async def analyze_incident_image(request: Request, user: dict[str, Any] | None =
     if len(attempts)>=10: raise HTTPException(status_code=429,detail="Please wait before requesting more image analyses.")
     attempts.append(now)
     try:
-        form = await request.form(max_files=1, max_fields=2, max_part_size=64 * 1024)
+        form = await request.form(max_files=1, max_fields=3, max_part_size=64 * 1024)
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail="Image upload dependencies are missing. Install backend requirements.") from exc
     upload = form.get("image")
-    if upload is None or not hasattr(upload, "read"):
-        raise HTTPException(status_code=422, detail="Choose a photo to analyse.")
-    data = await upload.read(10 * 1024 * 1024 + 1)
+    description = str(form.get('description', '')).strip()[:2000]
+    image = None
+    image_digest = None
     from .ai import incident_vision
+    if upload is not None and hasattr(upload, 'read'):
+        data = await upload.read(10 * 1024 * 1024 + 1)
+        image_digest = __import__('hashlib').sha256(data).hexdigest()
+        try:
+            image = await run_in_threadpool(incident_vision.prepare_image, data)
+        except incident_vision.InvalidIncidentImage as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if image is None and (not description or request.url.path.endswith('/detect')):
+        raise HTTPException(422, 'Choose a photo or describe the infrastructure problem.')
+    from .services.infrastructure_analysis import analyze
     try:
-        image = await run_in_threadpool(incident_vision.prepare_image, data)
-    except incident_vision.InvalidIncidentImage as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    description = str(form.get("description", "")).strip()[:2000]
-    try:
-        result = await asyncio.wait_for(run_in_threadpool(incident_vision.analyze, image, description), timeout=20)
+        result = await asyncio.wait_for(run_in_threadpool(analyze, image, description, str(form.get('rejected', '')).lower() == 'true', request.url.path.endswith('/detect')), timeout=60)
     except asyncio.TimeoutError:
         result = {"available": False, "reason": "Image analysis timed out. You can still submit this report manually.", "model_name": "configured", "model_version": "unknown"}
-    if result.get("available") and description:
-        result["explanation"] += f" Your description says: {description}"
     analysis_id = str(uuid.uuid4())
+    result['image_digest'] = image_digest
     observations = result.get("observations", [])
     with postgres_connection() as con:
         con.execute("""insert into public.incident_ai_analyses(id,requester_id,model_name,model_version,available,suggested_category,confidence,observations,result_metadata)
-          values(%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb)""", (analysis_id,user["id"],result.get("model_name","unavailable"),result.get("model_version","none"),result.get("available",False),result.get("category"),result.get("confidence"),__import__("json").dumps(observations),__import__("json").dumps({k:v for k,v in result.items() if k not in {"observations","explanation"}})))
+          values(%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb)""", (analysis_id,user["id"],result.get("model_name","unavailable"),result.get("model_version","none"),result.get("available",False),result.get("category"),result.get("confidence"),__import__("json").dumps(observations),__import__("json").dumps({k:v for k,v in result.items() if k not in {"observations","explanation","annotated_image"}})))
     return {"analysis_id":analysis_id, **result}
 
 
@@ -183,12 +211,12 @@ async def submit_incident_with_media(request: Request, user: dict[str, Any] | No
             existing=con.execute("select id::text,status,created_at,public_reference from public.incidents where reporter_id=%s and submission_key=%s",(user["id"],str(incident.submission_key))).fetchone()
             if existing:return {"id":existing["id"],"reference":existing["public_reference"],"category":incident.category,"status":existing["status"],"created_at":existing["created_at"],"classification":"unverified resident report"}
     object_path = f"{user['id']}/{uuid.uuid4()}.jpg"
-    uploaded = False
+    uploaded_paths = []
     try:
-        response = await run_in_threadpool(lambda: httpx.post(f"{supabase_url}/storage/v1/object/incident-media/{object_path}", headers={"apikey":service_key,"Authorization":f"Bearer {service_key}","Content-Type":"image/jpeg","x-upsert":"false"}, content=image_bytes, timeout=20))
+        uploaded_paths.append(object_path)
+        response = await run_in_threadpool(lambda: network.request('POST', f"{supabase_url}/storage/v1/object/incident-media/{object_path}", headers={"apikey":service_key,"Authorization":f"Bearer {service_key}","Content-Type":"image/jpeg","x-upsert":"false"}, content=image_bytes, timeout=20))
         response.raise_for_status()
-        uploaded = True
-        reference = "EP-" + uuid.uuid4().hex[:12].upper()
+        reference = "ECO-" + str(datetime.now(timezone.utc).year) + "-" + uuid.uuid4().hex[:16].upper()
         with postgres_connection() as con:
             analysis = None
             if incident.analysis_id:
@@ -196,31 +224,51 @@ async def submit_incident_with_media(request: Request, user: dict[str, Any] | No
                     analysis_uuid = str(uuid.UUID(incident.analysis_id))
                 except ValueError as exc:
                     raise HTTPException(status_code=422, detail="The selected AI analysis reference is invalid.") from exc
-                analysis = con.execute("select id,model_name,model_version,suggested_category from public.incident_ai_analyses where id=%s and requester_id=%s", (analysis_uuid,user["id"])).fetchone()
+                analysis = con.execute("select id,model_name,model_version,suggested_category,result_metadata from public.incident_ai_analyses where id=%s and requester_id=%s", (analysis_uuid,user["id"])).fetchone()
                 if not analysis:
                     raise HTTPException(status_code=403, detail="That AI analysis does not belong to your account.")
-            municipality = con.execute("""select coalesce(
-              (select m.id from public.municipalities m where m.boundary is not null and %s is not null and %s is not null and extensions.st_covers(m.boundary::extensions.geometry,extensions.st_setsrid(extensions.st_makepoint(%s,%s),4326)) limit 1),
-              (select p.municipality_id from public.profiles p where p.id=%s)) as municipality_id""",(incident.longitude,incident.latitude,incident.longitude,incident.latitude,user["id"])).fetchone()["municipality_id"]
+                if analysis['result_metadata'].get('image_digest') != __import__('hashlib').sha256(data).hexdigest():
+                    raise HTTPException(422, 'The photo changed after analysis. Analyse it again or continue manually.')
+            municipality = resolve_municipality(con, incident.latitude, incident.longitude, incident.municipality_id)
             row=con.execute("""insert into public.incidents(reporter_id,category,title,description,location,location_text,municipality_id,public_reference,submission_key,ai_suggested_category,resident_confirmed_category,ai_model_name,ai_model_version,training_consent)
-              values(%s,%s,%s,%s,case when %s is null or %s is null then null else extensions.st_setsrid(extensions.st_makepoint(%s,%s),4326)::extensions.geography end,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+              values(%s,%s,%s,%s,case when %s::double precision is null or %s::double precision is null then null else extensions.st_setsrid(extensions.st_makepoint(%s,%s),4326)::extensions.geography end,%s,%s,%s,%s,%s,%s,%s,%s,%s)
               returning id::text,status,created_at,public_reference""",(user["id"],incident.category,incident.title,incident.description,incident.longitude,incident.latitude,incident.longitude,incident.latitude,incident.location,municipality,reference,incident.submission_key,analysis["suggested_category"] if analysis else None,incident.category,analysis["model_name"] if analysis else None,analysis["model_version"] if analysis else None,incident.training_consent)).fetchone()
             con.execute("insert into public.incident_media(incident_id,owner_id,storage_path,content_type) values(%s,%s,%s,'image/jpeg')",(row["id"],user["id"],object_path))
+            if analysis and analysis['result_metadata'].get('detections'):
+                from PIL import ImageDraw
+                annotated = image.copy()
+                draw = ImageDraw.Draw(annotated)
+                for detection in analysis['result_metadata']['detections']:
+                    draw.rectangle(detection['bounding_box'], outline='#f59e0b', width=4)
+                    draw.text(tuple(detection['bounding_box'][:2]), detection['label'], fill='#f59e0b')
+                annotated_bytes = io.BytesIO()
+                annotated.save(annotated_bytes, format='JPEG', quality=85)
+                annotated_path = f"{user['id']}/{uuid.uuid4()}-annotated.jpg"
+                uploaded_paths.append(annotated_path)
+                annotated_response = await run_in_threadpool(lambda: network.request('POST', f"{supabase_url}/storage/v1/object/incident-media/{annotated_path}",headers={"apikey":service_key,"Authorization":f"Bearer {service_key}","Content-Type":"image/jpeg","x-upsert":"false"},content=annotated_bytes.getvalue(),timeout=20))
+                annotated_response.raise_for_status()
+                con.execute("insert into public.incident_media(incident_id,owner_id,storage_path,content_type,media_kind) values(%s,%s,%s,'image/jpeg','annotated')", (row['id'],user['id'],annotated_path))
             con.execute("insert into public.incident_updates(incident_id,message,official,internal) values(%s,'Report submitted.',false,false)",(row["id"],))
             if analysis:
                 con.execute("update public.incident_ai_analyses set incident_id=%s where id=%s",(row["id"],analysis["id"]))
             if municipality:
                 con.execute("""insert into public.notifications(resident_id,title,body,category,official)
-                  select mm.user_id,%s,%s,'incident_report',false from public.municipal_memberships mm where mm.municipality_id=%s and mm.status='active'""",(f"New community report: {incident.title}","A resident submitted a report in your assigned municipality.",municipality))
+                  select mm.user_id,%s,%s,'incident_report',false from public.municipal_memberships mm where mm.municipality_id=%s and mm.status='active' and public.can_manage_incident(%s,mm.user_id)""",(f"New community report: {incident.title}","A resident submitted a report in your assigned department.",municipality,row["id"]))
         return {"id":row["id"],"reference":row["public_reference"],"category":incident.category,"status":row["status"],"created_at":row["created_at"],"classification":"unverified resident report"}
     except HTTPException:
-        if uploaded:
-            await run_in_threadpool(lambda: httpx.delete(f"{supabase_url}/storage/v1/object/incident-media/{object_path}",headers={"apikey":service_key,"Authorization":f"Bearer {service_key}"},timeout=10))
+        for uploaded_path in uploaded_paths:
+            try:
+                await run_in_threadpool(lambda: network.request('DELETE', f"{supabase_url}/storage/v1/object/incident-media/{uploaded_path}",headers={"apikey":service_key,"Authorization":f"Bearer {service_key}"},timeout=10))
+            except httpx.HTTPError:
+                log.error('Incident storage cleanup needs retry for an uncommitted upload.')
         raise
     except Exception as exc:
-        if uploaded:
-            await run_in_threadpool(lambda: httpx.delete(f"{supabase_url}/storage/v1/object/incident-media/{object_path}",headers={"apikey":service_key,"Authorization":f"Bearer {service_key}"},timeout=10))
-        log.exception("Incident with media submission failed")
+        for uploaded_path in uploaded_paths:
+            try:
+                await run_in_threadpool(lambda: network.request('DELETE', f"{supabase_url}/storage/v1/object/incident-media/{uploaded_path}",headers={"apikey":service_key,"Authorization":f"Bearer {service_key}"},timeout=10))
+            except httpx.HTTPError:
+                log.error('Incident storage cleanup needs retry for an uncommitted upload.')
+        log.error("Incident with media submission failed: %s", type(exc).__name__)
         raise HTTPException(status_code=503, detail="Could not save this report and its image. Please retry or submit manually without the photo.") from exc
 
 @app.get("/api/v1/health")
@@ -547,21 +595,16 @@ def create_incident(incident: Incident, user: dict[str, Any] | None = Depends(op
                 if incident.submission_key:
                     existing=con.execute("select id::text,status,created_at,public_reference from public.incidents where reporter_id=%s and submission_key=%s",(user["id"],str(incident.submission_key))).fetchone()
                     if existing:return {"id":existing["id"],"reference":existing["public_reference"],"category":incident.category,"status":existing["status"],"created_at":existing["created_at"],"classification":"unverified resident report"}
-                municipality = con.execute("""select coalesce(
-                    (select m.id from public.municipalities m where m.boundary is not null and %s is not null and %s is not null
-                      and extensions.st_covers(m.boundary::extensions.geometry,
-                        extensions.st_setsrid(extensions.st_makepoint(%s,%s),4326)) limit 1),
-                    (select p.municipality_id from public.profiles p where p.id=%s)) as municipality_id""",
-                    (incident.longitude,incident.latitude,incident.longitude,incident.latitude,user["id"])).fetchone()["municipality_id"]
+                municipality = resolve_municipality(con, incident.latitude, incident.longitude, incident.municipality_id)
                 analysis = None
                 if incident.analysis_id:
                     try: analysis_id=str(uuid.UUID(incident.analysis_id))
                     except ValueError as exc: raise HTTPException(status_code=422,detail="The selected AI analysis reference is invalid.") from exc
                     analysis=con.execute("select id,model_name,model_version,suggested_category from public.incident_ai_analyses where id=%s and requester_id=%s",(analysis_id,user["id"])).fetchone()
                     if not analysis: raise HTTPException(status_code=403,detail="That AI analysis does not belong to your account.")
-                reference="EP-"+uuid.uuid4().hex[:12].upper()
+                reference="ECO-"+str(datetime.now(timezone.utc).year)+"-"+uuid.uuid4().hex[:16].upper()
                 row = con.execute("""insert into public.incidents(reporter_id,category,title,description,location,location_text,municipality_id,public_reference,submission_key,ai_suggested_category,resident_confirmed_category,ai_model_name,ai_model_version,training_consent)
-                    values(%s,%s,%s,%s,case when %s is null or %s is null then null else extensions.st_setsrid(extensions.st_makepoint(%s,%s),4326)::extensions.geography end,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    values(%s,%s,%s,%s,case when %s::double precision is null or %s::double precision is null then null else extensions.st_setsrid(extensions.st_makepoint(%s,%s),4326)::extensions.geography end,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     returning id::text,status,created_at,public_reference""", (user["id"],incident.category,incident.title,incident.description,
                     incident.longitude,incident.latitude,incident.longitude,incident.latitude,incident.location,municipality,reference,
                     incident.submission_key,
@@ -572,8 +615,8 @@ def create_incident(incident: Incident, user: dict[str, Any] | None = Depends(op
                 if municipality:
                     con.execute("""insert into public.notifications(resident_id,title,body,category,official)
                         select mm.user_id,%s,%s,'incident_report',false from public.municipal_memberships mm
-                        where mm.municipality_id=%s and mm.status='active'""",
-                        (f"New community report: {incident.title}","A resident submitted a report in your assigned municipality.",municipality))
+                        where mm.municipality_id=%s and mm.status='active' and public.can_manage_incident(%s,mm.user_id)""",
+                        (f"New community report: {incident.title}","A resident submitted a report in your assigned department.",municipality,row["id"]))
         except HTTPException:
             raise
         except Exception as exc:
@@ -581,7 +624,7 @@ def create_incident(incident: Incident, user: dict[str, Any] | None = Depends(op
         return {"id":row["id"],"reference":row["public_reference"],"category":incident.category,"status":row["status"],"created_at":row["created_at"],"classification":"unverified resident report"}
     require_local_demo_mode()
     now=datetime.now(timezone.utc).isoformat()
-    reference="EP-"+uuid.uuid4().hex[:12].upper()
+    reference="ECO-"+str(datetime.now(timezone.utc).year)+"-"+uuid.uuid4().hex[:16].upper()
     with db() as con:
         if incident.submission_key:
             existing=con.execute("select id,status,created_at,public_reference from incidents where submission_key=?",(str(incident.submission_key),)).fetchone()
@@ -598,7 +641,7 @@ def list_incidents(limit: int = Query(50,ge=1,le=100), offset: int = Query(0,ge=
             with postgres_connection() as con:
                 rows=con.execute("""select id::text,public_reference,category,title,description,location_text as location,
                     extensions.st_y(location::extensions.geometry) as latitude,extensions.st_x(location::extensions.geometry) as longitude,
-                    created_at,status from public.incidents where reporter_id=%s order by created_at desc limit %s offset %s""",
+                    created_at,status,(select name from public.municipalities m where m.id=municipality_id) as municipality_name,(select department_name from public.municipal_departments d where d.id=department_id) as department_name from public.incidents where reporter_id=%s order by created_at desc limit %s offset %s""",
                     (user["id"],limit,offset)).fetchall()
         except Exception as exc:
             raise HTTPException(503,"Could not load your incident history.") from exc
@@ -614,7 +657,7 @@ def resident_incident(incident_id: str, user: dict[str, Any] | None = Depends(op
         if user["role"] != "resident": raise HTTPException(403,"Only residents can view their report details.")
         try:
             with postgres_connection() as con:
-                incident=con.execute("""select id::text,public_reference,category,title,description,location_text as location,status,created_at,updated_at
+                incident=con.execute("""select id::text,public_reference,category,title,description,location_text as location,status,created_at,updated_at,(select name from public.municipalities m where m.id=municipality_id) as municipality_name,(select department_name from public.municipal_departments d where d.id=department_id) as department_name
                     from public.incidents where id=%s and reporter_id=%s""",(incident_id,user["id"])).fetchone()
                 if not incident: raise HTTPException(404,"Incident not found.")
                 updates=con.execute("select status,message,created_at from public.incident_updates where incident_id=%s and internal=false order by created_at",(incident_id,)).fetchall()
@@ -627,7 +670,7 @@ def resident_incident(incident_id: str, user: dict[str, Any] | None = Depends(op
             url=None
             if supabase_url and service_key:
                 try:
-                    signed=httpx.post(f"{supabase_url}/storage/v1/object/sign/incident-media/{item['storage_path']}",headers={"apikey":service_key,"Authorization":f"Bearer {service_key}"},json={"expiresIn":300},timeout=8)
+                    signed=network.request('POST', f"{supabase_url}/storage/v1/object/sign/incident-media/{item['storage_path']}",headers={"apikey":service_key,"Authorization":f"Bearer {service_key}"},json={"expiresIn":300},timeout=8)
                     signed.raise_for_status(); path=signed.json().get("signedURL"); url=f"{supabase_url}/storage/v1{path}" if path and path.startswith("/") else path
                 except (httpx.HTTPError,ValueError): pass
             media_items.append({"content_type":item["content_type"],"url":url})
@@ -647,7 +690,7 @@ def dashboard(user: dict[str, Any] | None = Depends(optional_current_user)):
         try:
             with postgres_connection() as con:
                 active_incidents=con.execute("select count(*) as count from public.incidents where reporter_id=%s and status in ('submitted','acknowledged','under_review','verified','in_progress')",(user["id"],)).fetchone()["count"]
-                recent=con.execute("select id::text,category,title,location_text as location,created_at,status from public.incidents where reporter_id=%s order by created_at desc limit 5",(user["id"],)).fetchall()
+                recent=con.execute("select id::text,category,title,location_text as location,created_at,status,(select name from public.municipalities m where m.id=municipality_id) as municipality_name,(select department_name from public.municipal_departments d where d.id=department_id) as department_name from public.incidents where reporter_id=%s order by created_at desc limit 5",(user["id"],)).fetchall()
                 water=con.execute("select coalesce(sum(w.current_value-w.previous_value),0) as total,count(*) as count from public.water_readings w where w.resident_id=%s and to_char(w.reading_date,'YYYY-MM')=%s",(user["id"],month)).fetchone()
                 energy=con.execute("select coalesce(sum(e.current_value-e.previous_value),0) as total,count(*) as count from public.energy_readings e where e.resident_id=%s and to_char(e.reading_date,'YYYY-MM')=%s",(user["id"],month)).fetchone()
         except Exception as exc:
