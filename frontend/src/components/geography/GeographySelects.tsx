@@ -41,7 +41,7 @@ export function ProvinceSelect({ value, onChange, disabled = false, required = t
   </>;
 }
 
-export function MunicipalitySelect({ provinceId, value, onChange, disabled = false, required = true }: SelectProps & { provinceId: string }) {
+export function MunicipalitySelect({ provinceId, value, onChange, disabled = false, required = true, infrastructure = false }: SelectProps & { provinceId: string; infrastructure?: boolean }) {
   const [search, setSearch] = useState('');
   const [previousProvince, setPreviousProvince] = useState(provinceId);
   useEffect(() => {
@@ -71,8 +71,8 @@ export function MunicipalitySelect({ provinceId, value, onChange, disabled = fal
     <input type="search" aria-label="Search municipalities" placeholder="Search municipalities" value={search} onChange={event => setSearch(event.target.value)} disabled={!provinceId || disabled || query.isError} />
     <select required={required} disabled={!provinceId || disabled || query.isPending || query.isError} value={value} onChange={event => onChange(event.target.value)}>
       <option value="">{!provinceId ? 'Select a province first' : query.isPending ? 'Loading municipalities…' : 'Select a municipality'}</option>
-      {options.map(municipality => <option key={municipality.id} value={municipality.id}>
-        {municipality.name}
+      {options.filter(municipality=>!infrastructure||municipality.municipality_type==='local'||municipality.municipality_type==='metropolitan').map(municipality => <option key={municipality.id} value={municipality.id}>
+        {municipality.name}{infrastructure?` (${municipality.municipality_type})`:''}
       </option>)}
     </select>
     {query.isError && provinceId && <small className="form-error" role="alert">Could not load municipalities. Try again shortly.</small>}

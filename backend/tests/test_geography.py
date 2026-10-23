@@ -302,11 +302,11 @@ def test_municipal_dashboard_queries_only_assigned_municipality_ids(client: Test
         return []
 
     monkeypatch.setattr(workspace, "_execute", execute)
-    monkeypatch.setitem(app.dependency_overrides, current_user, lambda: {"id": "municipal-id", "role": "municipal", "municipality_ids": assigned})
+    monkeypatch.setitem(app.dependency_overrides, current_user, lambda: {"id": "00000000-0000-0000-0000-000000000124", "role": "municipal", "municipality_ids": assigned})
     response = client.get("/api/v1/municipal/dashboard")
 
     assert response.status_code == 200
-    assert calls == [(assigned,), (assigned,)]
+    assert calls == [(assigned,None,None), (assigned,None,None)]
     assert response.json()["municipality_ids"] == assigned
 
 

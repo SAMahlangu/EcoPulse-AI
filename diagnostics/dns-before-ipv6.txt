@@ -1,0 +1,11 @@
+
+Configuration for interface "Ethernet"
+    DNS servers configured through DHCP:  fd18:d0e8:1be5::1
+    Register with which suffix:           Primary only
+
+Configuration for interface "Loopback Pseudo-Interface 1"
+    Statically Configured DNS Servers:    fec0:0:0:ffff::1%1
+                                          fec0:0:0:ffff::2%1
+                                          fec0:0:0:ffff::3%1
+    Register with which suffix:           Primary only
+

@@ -14,6 +14,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field, SecretStr
 
+from .services import network, weather_service
 from .security import current_user, postgres_connection, require_roles
 
 router = APIRouter(prefix="/api/v1")
@@ -122,6 +123,14 @@ def _execute(sql: str, params: tuple[Any, ...] = (), *, fetch: str = "all"):
         raise HTTPException(status_code=503, detail="The shared platform database is unavailable or needs migration 003.") from exc
 
 
+
+def _municipal_execute(user, sql, params=(), *, fetch="all"):
+    # The SQL function also verifies active municipality membership and account status.
+    # UUID validation prevents SQL interpolation of untrusted identifiers.
+    actor = str(UUID(user["id"]))
+    sql = sql.replace("public.incidents", "public.authorized_incidents('" + actor + "'::uuid)")
+    return _execute(sql, params, fetch=fetch)
+
 def _scope(user: dict[str, Any]) -> list[str]:
     return user.get("municipality_ids") or []
 
@@ -130,6 +139,82 @@ def _scope(user: dict[str, Any]) -> list[str]:
 def location_provinces():
     rows = _execute("select id::text,name,code from public.provinces order by name")
     return {"items": [dict(row) for row in rows]}
+
+
+@router.get("/locations/reverse")
+async def reverse_geocode_location(
+    latitude: float = Query(..., ge=-90, le=90),
+    longitude: float = Query(..., ge=-180, le=180),
+):
+    """Resolve a selected point to a nearby label and canonical SA geography."""
+    place: dict[str, Any] = {}
+    try:
+        place = await weather_service.reverse_location(latitude, longitude)
+    except Exception:
+        # A location label provider can be unavailable while database boundaries
+        # still identify the responsible municipality and province.
+        pass
+
+    municipality = None
+    province = None
+    if place.get("country_code") in (None, "za"):
+        try:
+            matches = _execute(
+                """select m.id::text,m.name,m.province_id::text,p.name as province
+                   from public.municipalities m join public.provinces p on p.id=m.province_id
+                   where m.is_demonstration is false and m.boundary is not null
+                     and m.municipality_type in ('local','metropolitan')
+                     and extensions.st_covers(m.boundary::extensions.geometry,
+                         extensions.st_setsrid(extensions.st_makepoint(%s,%s),4326))""",
+                (longitude, latitude),
+            )
+            if len(matches) == 1:
+                municipality = dict(matches[0])
+        except HTTPException:
+            pass
+
+        # Some municipalities have no imported boundary. Use an exact official
+        # municipality name returned by reverse geocoding when available.
+        if municipality is None:
+            candidates = list(dict.fromkeys(filter(None, (
+                place.get("municipality"), place.get("locality"),
+            ))))
+            if candidates:
+                try:
+                    matches = _execute(
+                        """select m.id::text,m.name,m.province_id::text,p.name as province
+                           from public.municipalities m join public.provinces p on p.id=m.province_id
+                           where m.is_demonstration is false
+                             and m.municipality_type in ('local','metropolitan')
+                             and lower(m.name)=any(%s)
+                             and lower(p.name)=lower(coalesce(%s,p.name))""",
+                        ([name.casefold() for name in candidates], place.get("province")),
+                    )
+                    if len(matches) == 1:
+                        municipality = dict(matches[0])
+                except HTTPException:
+                    pass
+
+    if municipality:
+        province = {"id": municipality["province_id"], "name": municipality["province"]}
+    elif place.get("province"):
+        try:
+            row = _execute(
+                "select id::text,name from public.provinces where lower(name)=lower(%s)",
+                (place["province"],), fetch="one",
+            )
+            if row:
+                province = dict(row)
+        except HTTPException:
+            pass
+
+    return {
+        "location": place.get("label") or (municipality["name"] if municipality else ""),
+        "locality": place.get("locality"),
+        "province": province,
+        "municipality": municipality,
+        "source": place.get("source") if place.get("label") else "Municipality boundary data",
+    }
 
 
 @router.get("/locations/municipalities")
@@ -223,7 +308,7 @@ def _signed_media_url(storage_path: str) -> str | None:
     service_key=os.getenv("SUPABASE_SERVICE_ROLE_KEY","").strip()
     if not supabase_url or not service_key: return None
     try:
-        response=httpx.post(f"{supabase_url}/storage/v1/object/sign/incident-media/{storage_path}",headers={"apikey":service_key,"Authorization":f"Bearer {service_key}"},json={"expiresIn":300},timeout=8)
+        response=network.request('POST', f"{supabase_url}/storage/v1/object/sign/incident-media/{storage_path}",headers={"apikey":service_key,"Authorization":f"Bearer {service_key}"},json={"expiresIn":300},timeout=8)
         response.raise_for_status()
         value=response.json().get("signedURL")
         return f"{supabase_url}/storage/v1{value}" if value and value.startswith("/") else value
@@ -243,7 +328,7 @@ async def register_local_resident(form: LocalResidentRegistration, request: Requ
     if not supabase_url or not service_key:
         raise HTTPException(status_code=503, detail="Local registration requires server-side Supabase configuration.")
     headers = {"apikey": service_key, "Authorization": f"Bearer {service_key}"}
-    async with httpx.AsyncClient(timeout=15) as client:
+    async with httpx.AsyncClient(timeout=15, transport=network.AsyncDNSFallbackTransport()) as client:
         try:
             response = await client.post(f"{supabase_url}/auth/v1/admin/users", headers=headers, json={
                 "email": form.email.strip().lower(), "password": form.password.get_secret_value(),
@@ -336,6 +421,11 @@ def accept_municipal_invitation(form: AcceptInvitationRequest, user: dict[str, A
             if not profile:
                 raise HTTPException(status_code=400, detail="This invitation municipality is no longer onboarded.")
             connection.execute("insert into public.municipal_memberships(user_id,municipality_id,status) values(%s,%s,'active') on conflict(user_id,municipality_id) do update set status='active',updated_at=now()",(user["id"],invitation["municipality_id"]))
+            connection.execute("""insert into public.department_memberships(user_id,department_id,role,is_active)
+                select %s,id,'employee',true from public.municipal_departments
+                where municipality_id=%s and is_triage and is_active
+                on conflict(user_id,department_id) do update set is_active=true""",
+                (user["id"],invitation["municipality_id"]))
             connection.execute("update public.municipal_invitations set status='accepted' where id=%s",(invitation["id"],))
             connection.execute("insert into public.admin_audit_logs(actor_id,action,target_type,target_id,details) values(%s,'municipal_invitation_accepted','municipal_invitation',%s,'{}'::jsonb)",(user["id"],invitation["id"]))
     except HTTPException:
@@ -384,8 +474,8 @@ def public_notices(limit: int = Query(25,ge=1,le=100)):
 
 
 @router.get("/municipal/dashboard")
-def municipal_dashboard(user: dict[str, Any] = Depends(require_roles("municipal"))):
-    rows = _execute("""
+def municipal_dashboard(department_id: UUID | None = None, user: dict[str, Any] = Depends(require_roles("municipal"))):
+    rows = _municipal_execute(user, """
       select count(*) as total,
         count(*) filter(where status='submitted') as new,
         count(*) filter(where status in ('under_review','acknowledged')) as under_review,
@@ -393,13 +483,15 @@ def municipal_dashboard(user: dict[str, Any] = Depends(require_roles("municipal"
         count(*) filter(where status in ('resolved','closed')) as resolved,
         count(*) filter(where priority in ('high','urgent')) as high_priority
       from public.incidents where municipality_id = any(%s::uuid[])
-    """, (_scope(user),), fetch="one")
-    recent = _execute("""
+      and (%s::uuid is null or department_id=%s)
+    """, (_scope(user),department_id,department_id), fetch="one")
+    recent = _municipal_execute(user, """
       select i.id::text, i.category, i.title, i.status, i.priority, i.created_at,
         i.location::text as location, i.reporter_id::text
       from public.incidents i where i.municipality_id = any(%s::uuid[])
+      and (%s::uuid is null or i.department_id=%s)
       order by i.created_at desc limit 8
-    """, (_scope(user),))
+    """, (_scope(user),department_id,department_id))
     return {"metrics": dict(rows), "recent_incidents": [dict(row) for row in recent], "municipality_ids": _scope(user)}
 
 
@@ -409,10 +501,10 @@ def municipal_incidents(q: str | None = Query(None, max_length=120), category: s
                         start_date: date | None = None, end_date: date | None = None,
                         limit: int = Query(25, ge=1, le=100), offset: int = Query(0, ge=0),
                         user: dict[str, Any] = Depends(require_roles("municipal"))):
-    rows = _execute("""
+    rows = _municipal_execute(user, """
       select i.id::text, i.public_reference, i.category, i.title, i.description, i.location::text as location,
         i.status, i.priority, i.created_at, i.updated_at, i.resolution_note,
-        i.reporter_id::text, i.municipality_id::text
+        i.reporter_id::text, i.municipality_id::text,i.department_id::text,(select department_name from public.municipal_departments d where d.id=i.department_id) as department_name
       from public.incidents i
       where i.municipality_id = any(%s::uuid[])
         and (%s::text is null or i.category=%s)
@@ -429,16 +521,16 @@ def municipal_incidents(q: str | None = Query(None, max_length=120), category: s
 
 @router.get("/municipal/incidents/{incident_id}")
 def municipal_incident(incident_id: str, user: dict[str, Any] = Depends(require_roles("municipal"))):
-    row = _execute("""
+    row = _municipal_execute(user, """
       select i.id::text, i.public_reference, i.category, i.title, i.description, i.location::text as location,
         i.status, i.priority, i.created_at, i.updated_at, i.resolution_note,
-        i.reporter_id::text, i.municipality_id::text,i.ai_suggested_category,i.resident_confirmed_category,i.ai_model_name,i.ai_model_version
+        i.reporter_id::text, i.municipality_id::text,i.department_id::text,(select department_name from public.municipal_departments d where d.id=i.department_id) as department_name,i.ai_suggested_category,i.resident_confirmed_category,i.ai_model_name,i.ai_model_version
       from public.incidents i where i.id=%s and i.municipality_id = any(%s::uuid[])
     """, (incident_id, _scope(user)), fetch="one")
     if not row:
         raise HTTPException(status_code=404, detail="Incident not found.")
-    history = _execute("select id::text,status,message,official,internal,created_at from public.incident_updates where incident_id=%s order by created_at", (incident_id,))
-    media = _execute("select storage_path,content_type from public.incident_media where incident_id=%s order by created_at",(incident_id,))
+    history = _municipal_execute(user, "select id::text,status,message,official,internal,created_at from public.incident_updates where incident_id=%s order by created_at", (incident_id,))
+    media = _municipal_execute(user, "select storage_path,content_type from public.incident_media where incident_id=%s order by created_at",(incident_id,))
     media_items=[{"content_type":item["content_type"],"url":_signed_media_url(item["storage_path"])} for item in media]
     return {"incident": dict(row), "history": [dict(item) for item in history], "media":media_items}
 
@@ -448,6 +540,9 @@ def update_incident_status(incident_id: str, update: StatusUpdate,
                            user: dict[str, Any] = Depends(require_roles("municipal"))):
     try:
         with postgres_connection() as connection:
+            allowed = connection.execute("select public.can_manage_incident(%s,%s) as allowed", (incident_id,user["id"])).fetchone()
+            if not allowed or not allowed["allowed"]:
+                raise HTTPException(404, "Incident not found in your authorised department.")
             current = connection.execute("select status,reporter_id::text,title from public.incidents where id=%s and municipality_id=any(%s::uuid[]) for update",(incident_id,_scope(user))).fetchone()
             if not current:
                 raise HTTPException(status_code=404, detail="Incident not found in your authorised municipality.")
@@ -456,6 +551,7 @@ def update_incident_status(incident_id: str, update: StatusUpdate,
                 "acknowledged": {"under_review","verified","in_progress","duplicate","rejected","unable_to_verify"},
                 "under_review": {"verified","in_progress","duplicate","rejected","unable_to_verify"},
                 "verified": {"in_progress","resolved","duplicate","rejected","unable_to_verify"},
+                "assigned": {"in_progress","rejected","unable_to_verify"},
                 "in_progress": {"resolved","unable_to_verify"},
                 "resolved": set(), "closed": set(), "duplicate": set(), "rejected": set(), "unable_to_verify": set(),
             }
@@ -489,6 +585,9 @@ def add_incident_note(incident_id: str, note: IncidentNote,
                       user: dict[str, Any] = Depends(require_roles("municipal"))):
     try:
         with postgres_connection() as connection:
+            allowed = connection.execute("select public.can_manage_incident(%s,%s) as allowed", (incident_id,user["id"])).fetchone()
+            if not allowed or not allowed["allowed"]:
+                raise HTTPException(404, "Incident not found in your authorised department.")
             exists = connection.execute("select id from public.incidents where id=%s and municipality_id=any(%s::uuid[])", (incident_id, _scope(user))).fetchone()
             if not exists:
                 raise HTTPException(status_code=404, detail="Incident not found in your authorised municipality.")
@@ -505,29 +604,44 @@ def add_incident_note(incident_id: str, note: IncidentNote,
 
 @router.get("/municipal/analytics")
 def municipal_analytics(user: dict[str, Any] = Depends(require_roles("municipal"))):
-    status = _execute("select status,count(*) as count from public.incidents where municipality_id=any(%s::uuid[]) group by status order by status", (_scope(user),))
-    categories = _execute("select category,count(*) as count from public.incidents where municipality_id=any(%s::uuid[]) group by category order by count desc", (_scope(user),))
-    trends = _execute("select date_trunc('month',created_at)::date as month,count(*) as count from public.incidents where municipality_id=any(%s::uuid[]) group by 1 order by 1 desc limit 12", (_scope(user),))
-    timing = _execute("select count(*) filter(where status in ('resolved','closed')) as resolved_count, avg(extract(epoch from (updated_at-created_at))/3600) filter(where status in ('resolved','closed')) as mean_resolution_hours from public.incidents where municipality_id=any(%s::uuid[])", (_scope(user),), fetch="one")
+    status = _municipal_execute(user, "select status,count(*) as count from public.incidents where municipality_id=any(%s::uuid[]) group by status order by status", (_scope(user),))
+    categories = _municipal_execute(user, "select category,count(*) as count from public.incidents where municipality_id=any(%s::uuid[]) group by category order by count desc", (_scope(user),))
+    trends = _municipal_execute(user, "select date_trunc('month',created_at)::date as month,count(*) as count from public.incidents where municipality_id=any(%s::uuid[]) group by 1 order by 1 desc limit 12", (_scope(user),))
+    timing = _municipal_execute(user, "select count(*) filter(where status in ('resolved','closed')) as resolved_count, avg(extract(epoch from (updated_at-created_at))/3600) filter(where status in ('resolved','closed')) as mean_resolution_hours from public.incidents where municipality_id=any(%s::uuid[])", (_scope(user),), fetch="one")
     return {"status_distribution":[dict(x) for x in status],"categories":[dict(x) for x in categories],"monthly_trends":[dict(x) for x in reversed(trends)],"resolution":dict(timing)}
 
 
 @router.get("/municipal/map")
-def municipal_map(user: dict[str, Any] = Depends(require_roles("municipal")), limit: int = Query(500,ge=1,le=1000)):
-    rows = _execute("select id::text,category,title,status,priority,created_at,st_y(location::geometry) as latitude,st_x(location::geometry) as longitude from public.incidents where municipality_id=any(%s::uuid[]) and location is not null order by created_at desc limit %s", (_scope(user),limit))
-    return {"items":[dict(row) for row in rows],"limit":limit}
+def municipal_map(user: dict[str, Any] = Depends(require_roles("municipal")), limit: int = Query(1000,ge=1,le=1000),
+                  offset: int = Query(0,ge=0),
+                  department_id: UUID | None=None, municipality_id: UUID | None=None,
+                  category: str | None=None,status: str | None=None,priority: str | None=None,
+                  start_date: date | None=None,end_date: date | None=None):
+    clauses=['municipality_id=any(%s::uuid[])','location is not null',
+             'extensions.st_x(location::extensions.geometry) is not null',
+             'extensions.st_y(location::extensions.geometry) is not null']
+    params=[_scope(user)]
+    for column,value in [('department_id',department_id),('municipality_id',municipality_id),('category',category),('status',status),('priority',priority)]:
+        if value is not None:
+            clauses.append(f'{column}=%s');params.append(value)
+    if start_date: clauses.append('created_at::date>=%s');params.append(start_date)
+    if end_date: clauses.append('created_at::date<=%s');params.append(end_date)
+    where=' and '.join(clauses)
+    total = _municipal_execute(user, 'select count(*) as total from public.incidents where '+where, tuple(params), fetch='one')['total']
+    rows = _municipal_execute(user, 'select id::text,public_reference,category,title,status,priority,location_text,created_at,extensions.st_y(location::extensions.geometry) as latitude,extensions.st_x(location::extensions.geometry) as longitude from public.incidents where '+where+' order by created_at desc limit %s offset %s', tuple(params+[limit,offset]))
+    return {"items":[dict(row) for row in rows],"total":total,"limit":limit,"offset":offset}
 
 
 @router.get("/municipal/notices")
 def municipal_notices(user: dict[str, Any] = Depends(require_roles("municipal"))):
-    rows = _execute("select id::text,municipality_id::text,category,title,body,status,starts_at,ends_at,demonstration,created_at from public.municipal_notices where municipality_id=any(%s::uuid[]) order by created_at desc limit 100", (_scope(user),))
+    rows = _municipal_execute(user, "select id::text,municipality_id::text,category,title,body,status,starts_at,ends_at,demonstration,created_at from public.municipal_notices where municipality_id=any(%s::uuid[]) order by created_at desc limit 100", (_scope(user),))
     return {"items":[dict(row) for row in rows]}
 
 
 @router.get("/municipal/my-municipalities")
 def my_municipalities(user: dict[str, Any] = Depends(require_roles("municipal"))):
     ids = _scope(user)
-    rows = _execute(
+    rows = _municipal_execute(user,
         """select id::text,name,province,province_id::text
            from public.municipalities where id=any(%s::uuid[]) order by province,name""",
         (ids,),
@@ -541,8 +655,8 @@ def create_notice(form: NoticeRequest, user: dict[str, Any] = Depends(require_ro
         raise HTTPException(status_code=403, detail="You cannot publish for this municipality.")
     if form.ends_at and form.starts_at and form.ends_at <= form.starts_at:
         raise HTTPException(status_code=422, detail="Notice end time must follow its start time.")
-    row = _execute("insert into public.municipal_notices(municipality_id,author_id,category,title,body,status,starts_at,ends_at,demonstration) values(%s,%s,%s,%s,%s,%s,%s,%s,true) returning id::text,status,created_at", (form.municipality_id,user["id"],form.category,form.title.strip(),form.body.strip(),form.status,form.starts_at,form.ends_at), fetch="one")
-    _execute("insert into public.admin_audit_logs(actor_id,action,target_type,target_id,details) values(%s,'municipal_notice_created','municipal_notice',%s,%s::jsonb)", (user["id"],row["id"],'{"status":"'+form.status+'"}'))
+    row = _municipal_execute(user, "insert into public.municipal_notices(municipality_id,author_id,category,title,body,status,starts_at,ends_at,demonstration) values(%s,%s,%s,%s,%s,%s,%s,%s,true) returning id::text,status,created_at", (form.municipality_id,user["id"],form.category,form.title.strip(),form.body.strip(),form.status,form.starts_at,form.ends_at), fetch="one")
+    _municipal_execute(user, "insert into public.admin_audit_logs(actor_id,action,target_type,target_id,details) values(%s,'municipal_notice_created','municipal_notice',%s,%s::jsonb)", (user["id"],row["id"],'{"status":"'+form.status+'"}'))
     return {"id":row["id"],"status":row["status"],"created_at":row["created_at"],"demonstration":True}
 
 
@@ -568,7 +682,7 @@ def update_notice(notice_id: str, form: NoticeUpdate, user: dict[str, Any] = Dep
 
 @router.get("/municipal/reports")
 def municipal_reports(user: dict[str, Any] = Depends(require_roles("municipal")), limit: int = Query(1000,ge=1,le=5000)):
-    rows = _execute("select id::text,category,title,status,priority,created_at,updated_at,municipality_id::text from public.incidents where municipality_id=any(%s::uuid[]) order by created_at desc limit %s", (_scope(user),limit))
+    rows = _municipal_execute(user, "select id::text,category,title,status,priority,created_at,updated_at,municipality_id::text from public.incidents where municipality_id=any(%s::uuid[]) order by created_at desc limit %s", (_scope(user),limit))
     return {"items":[dict(row) for row in rows],"limit":limit}
 
 
@@ -736,7 +850,7 @@ async def add_municipal_official(form: MunicipalOfficialRequest, user: dict[str,
     if _execute("select id from auth.users where lower(email)=lower(%s)", (email,), fetch="one"):
         raise HTTPException(status_code=409, detail="An account with this email already exists. Existing accounts are not overwritten.")
     headers = {"apikey": service_key, "Authorization": f"Bearer {service_key}"}
-    async with httpx.AsyncClient(timeout=15) as client:
+    async with httpx.AsyncClient(timeout=15, transport=network.AsyncDNSFallbackTransport()) as client:
         try:
             response = await client.post(f"{supabase_url}/auth/v1/admin/users", headers=headers, json={
                 "email": email, "password": form.password.get_secret_value(), "email_confirm": True,
@@ -773,6 +887,11 @@ async def add_municipal_official(form: MunicipalOfficialRequest, user: dict[str,
                 connection.execute("""insert into public.municipal_memberships(user_id,municipality_id,status)
                     values(%s,%s,'active') on conflict(user_id,municipality_id)
                     do update set status='active',updated_at=now()""", (official_id, form.municipality_id))
+                connection.execute("""insert into public.department_memberships(user_id,department_id,role,is_active)
+                    select %s,id,'employee',true from public.municipal_departments
+                    where municipality_id=%s and is_triage and is_active
+                    on conflict(user_id,department_id) do update set is_active=true""",
+                    (official_id, form.municipality_id))
                 connection.execute("""insert into public.admin_audit_logs(actor_id,action,target_type,target_id,details)
                     values(%s,'municipal_official_created','profile',%s,%s::jsonb)""",
                     (user["id"], str(official_id), json.dumps({"municipality_id": str(form.municipality_id), "province_id": str(form.province_id)})))

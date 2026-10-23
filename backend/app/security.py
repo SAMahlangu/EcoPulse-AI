@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import socket
 import time
 from typing import Any
 
@@ -8,6 +9,7 @@ import httpx
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwk, jwt
+from .services import network
 
 bearer = HTTPBearer(auto_error=False)
 _jwks: dict[str, Any] = {"expires": 0, "keys": []}
@@ -27,7 +29,19 @@ def postgres_connection():
     try:
         import psycopg
         from psycopg.rows import dict_row
-        return psycopg.connect(database_url(), row_factory=dict_row)
+        connection_options = {'row_factory': dict_row, 'connect_timeout': 10}
+        if network.fallback_enabled():
+            # Preserve the configured hostname, credentials and TLS settings.
+            # libpq's hostaddr bypasses name lookup only, not authentication.
+            from psycopg.conninfo import conninfo_to_dict
+            info = conninfo_to_dict(database_url())
+            host = info.get('host', '')
+            if host and ',' not in host and not info.get('hostaddr'):
+                try:
+                    socket.getaddrinfo(host, info.get('port', '5432'))
+                except socket.gaierror:
+                    connection_options['hostaddr'] = network.resolve_ipv4(host)[0]
+        return psycopg.connect(database_url(), **connection_options)
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Supabase database is currently unavailable.") from exc
 
@@ -47,7 +61,7 @@ def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bear
         elif algorithm in ("RS256", "ES256"):
             now = time.monotonic()
             if now >= _jwks["expires"]:
-                response = httpx.get(f"{supabase_url}/auth/v1/.well-known/jwks.json", timeout=5)
+                response = network.request('GET', f"{supabase_url}/auth/v1/.well-known/jwks.json", timeout=8)
                 response.raise_for_status()
                 _jwks.update(keys=response.json().get("keys", []), expires=now + 300)
             jwk_value = next((key for key in _jwks["keys"] if key.get("kid") == header.get("kid")), None)

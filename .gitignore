@@ -18,6 +18,8 @@ frontend/*.tsbuildinfo
 !**/.env.example
 frontend/.env.local
 backend/.env
+backend/.ultralytics/
+diagnostics/login-browser-profile/
 
 # Preserved metadata from the empty nested repository
 **/.git-backup/
