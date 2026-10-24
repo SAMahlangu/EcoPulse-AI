@@ -8,6 +8,7 @@ import time
 from collections import defaultdict, deque
 from datetime import date, datetime, timezone
 from typing import Any, Literal
+from urllib.parse import urlsplit
 from uuid import UUID
 
 import httpx
@@ -15,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field, SecretStr
 
 from .services import network, weather_service
+from .services.supabase_keys import supabase_secret_headers, supabase_secret_key
 from .security import current_user, postgres_connection, require_roles
 
 router = APIRouter(prefix="/api/v1")
@@ -305,10 +307,10 @@ def location_communities(
 
 def _signed_media_url(storage_path: str) -> str | None:
     supabase_url=os.getenv("SUPABASE_URL","").strip().rstrip("/")
-    service_key=os.getenv("SUPABASE_SERVICE_ROLE_KEY","").strip()
+    service_key=supabase_secret_key()
     if not supabase_url or not service_key: return None
     try:
-        response=network.request('POST', f"{supabase_url}/storage/v1/object/sign/incident-media/{storage_path}",headers={"apikey":service_key,"Authorization":f"Bearer {service_key}"},json={"expiresIn":300},timeout=8)
+        response=network.request('POST', f"{supabase_url}/storage/v1/object/sign/incident-media/{storage_path}",headers=supabase_secret_headers(),json={"expiresIn":300},timeout=8)
         response.raise_for_status()
         value=response.json().get("signedURL")
         return f"{supabase_url}/storage/v1{value}" if value and value.startswith("/") else value
@@ -321,13 +323,22 @@ async def register_local_resident(form: LocalResidentRegistration, request: Requ
     # Explicit opt-in and a loopback connection keep this out of deployed public registration.
     if os.getenv("ECOPULSE_LOCAL_PASSWORD_SIGNUP", "false").lower() != "true":
         raise HTTPException(status_code=404, detail="Local registration is disabled.")
+    try:
+        public_host = urlsplit(os.getenv("APP_PUBLIC_URL", "http://localhost:5173")).hostname
+    except ValueError:
+        public_host = None
+    if public_host not in {"localhost", "127.0.0.1", "::1"}:
+        # A loopback reverse proxy can make remote requests appear to come from localhost.
+        raise HTTPException(status_code=404, detail="Local registration is disabled.")
+    if request.url.hostname not in {"localhost", "127.0.0.1", "::1", "[::1]"}:
+        raise HTTPException(status_code=404, detail="Local registration is disabled.")
     if not request.client or request.client.host not in {"127.0.0.1", "::1"}:
         raise HTTPException(status_code=403, detail="This registration mode is available on localhost only.")
     supabase_url = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
-    service_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+    service_key = supabase_secret_key()
     if not supabase_url or not service_key:
         raise HTTPException(status_code=503, detail="Local registration requires server-side Supabase configuration.")
-    headers = {"apikey": service_key, "Authorization": f"Bearer {service_key}"}
+    headers = supabase_secret_headers()
     async with httpx.AsyncClient(timeout=15, transport=network.AsyncDNSFallbackTransport()) as client:
         try:
             response = await client.post(f"{supabase_url}/auth/v1/admin/users", headers=headers, json={
@@ -836,7 +847,7 @@ def create_municipality(form: MunicipalityRequest, user: dict[str, Any] = Depend
 @router.post("/admin/municipal-officials", status_code=201)
 async def add_municipal_official(form: MunicipalOfficialRequest, user: dict[str, Any] = Depends(require_roles("admin"))):
     supabase_url = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
-    service_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+    service_key = supabase_secret_key()
     if not supabase_url or not service_key:
         raise HTTPException(status_code=503, detail="Official account creation requires server-side Supabase configuration.")
     email = form.email.strip().lower()
@@ -849,7 +860,7 @@ async def add_municipal_official(form: MunicipalOfficialRequest, user: dict[str,
         raise HTTPException(status_code=422, detail="Select a municipality belonging to the selected province.")
     if _execute("select id from auth.users where lower(email)=lower(%s)", (email,), fetch="one"):
         raise HTTPException(status_code=409, detail="An account with this email already exists. Existing accounts are not overwritten.")
-    headers = {"apikey": service_key, "Authorization": f"Bearer {service_key}"}
+    headers = supabase_secret_headers()
     async with httpx.AsyncClient(timeout=15, transport=network.AsyncDNSFallbackTransport()) as client:
         try:
             response = await client.post(f"{supabase_url}/auth/v1/admin/users", headers=headers, json={

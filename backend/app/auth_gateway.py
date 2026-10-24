@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
 from starlette.concurrency import run_in_threadpool
 
 from .services import network
+from .services.supabase_keys import supabase_publishable_key
 
 router=APIRouter(prefix='/api/v1/auth/gateway')
 _attempts: OrderedDict[str,deque]=OrderedDict()
@@ -72,7 +73,7 @@ async def auth_gateway(action:Literal['token','signup','recover','logout','user'
     if request.method!=('PUT' if action=='user' else 'POST'):
         raise HTTPException(405,'Unsupported authentication method.')
     base=os.getenv('SUPABASE_URL','').strip().rstrip('/')
-    key=os.getenv('SUPABASE_ANON_KEY','').strip()
+    key=supabase_publishable_key()
     if not base or not key or urlsplit(base).scheme!='https':
         raise HTTPException(503,'The sign-in service is not configured.')
     data=bytearray()

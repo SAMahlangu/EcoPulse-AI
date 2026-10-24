@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT))
 load_dotenv(ROOT/'backend/.env')
+from backend.app.services.supabase_keys import supabase_secret_headers
 
 
 def verify(con):
@@ -106,8 +107,8 @@ def verify(con):
                 if photo_report:
                     paths=con.execute('select storage_path from public.incident_media where incident_id=%s',(photo_report,)).fetchall()
                     for item in paths:
-                        key=os.environ['SUPABASE_SERVICE_ROLE_KEY'];url=os.environ['SUPABASE_URL'].rstrip('/')
-                        removed=httpx.delete(f"{url}/storage/v1/object/incident-media/{item['storage_path']}",headers={'apikey':key,'Authorization':f'Bearer {key}'},timeout=15)
+                        url=os.environ['SUPABASE_URL'].rstrip('/')
+                        removed=httpx.delete(f"{url}/storage/v1/object/incident-media/{item['storage_path']}",headers=supabase_secret_headers(),timeout=15)
                         removed.raise_for_status()
             acting(other_resident,'resident')
             assert client.get(f'/api/v1/incidents/{report_id}').status_code==404

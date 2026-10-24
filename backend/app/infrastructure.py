@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from .services import network
+from .services.supabase_keys import supabase_secret_headers, supabase_secret_key
 from .security import postgres_connection, require_roles
 
 router = APIRouter(prefix='/api/v1/infrastructure')
@@ -156,10 +157,10 @@ async def completion_image(report_id: UUID, request: Request, user=Depends(requi
     except InvalidIncidentImage as exc:
         raise HTTPException(422,str(exc)) from exc
     buffer=io.BytesIO();image.save(buffer,format='JPEG',quality=88)
-    url=os.getenv('SUPABASE_URL','').rstrip('/');key=os.getenv('SUPABASE_SERVICE_ROLE_KEY','')
+    url=os.getenv('SUPABASE_URL','').rstrip('/');key=supabase_secret_key()
     if not url or not key: raise HTTPException(503,'Private storage is unavailable.')
     path=f"{user['id']}/{uuid4()}-repair.jpg"
-    headers={'apikey':key,'Authorization':f'Bearer {key}'}
+    headers=supabase_secret_headers()
     uploaded=False
     try:
         response=await run_in_threadpool(lambda:network.request('POST', f'{url}/storage/v1/object/incident-media/{path}',headers={**headers,'Content-Type':'image/jpeg'},content=buffer.getvalue(),timeout=20))

@@ -25,12 +25,13 @@ def setup(tmp_path,monkeypatch):
         async def delete(self,url,**kwargs):
             state["requests"].append(("DELETE",url,kwargs));return Response(200,{})
     monkeypatch.setenv("ECOPULSE_LOCAL_PASSWORD_SIGNUP","true")
+    monkeypatch.setenv("APP_PUBLIC_URL","http://localhost:5173")
     monkeypatch.setenv("SUPABASE_URL","https://example.invalid")
     monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY","server-only-test")
     monkeypatch.setattr("backend.app.main.DB_PATH",tmp_path/'local-signup.sqlite3')
     monkeypatch.setattr(workspace.httpx,"AsyncClient",AuthClient)
     monkeypatch.setattr(workspace,"_execute",lambda *args,**kwargs:{"role":state["role"]})
-    with TestClient(app,client=("127.0.0.1",50000)) as client:yield client,state
+    with TestClient(app,base_url="http://localhost",client=("127.0.0.1",50000)) as client:yield client,state
 
 
 def test_local_resident_creation_is_confirmed_without_assigning_privileged_role(setup):
@@ -55,8 +56,15 @@ def test_local_signup_is_disabled_by_default(setup,monkeypatch):
 
 def test_remote_requests_are_rejected(setup):
     _,state=setup
-    with TestClient(app,client=("203.0.113.1",50000)) as client:
+    with TestClient(app,base_url="http://localhost",client=("203.0.113.1",50000)) as client:
         assert client.post('/api/v1/auth/register-local',json=PAYLOAD).status_code==403
+    assert not state['requests']
+
+
+def test_local_signup_stays_disabled_when_the_site_is_deployed(setup,monkeypatch):
+    client,state=setup
+    monkeypatch.setenv("APP_PUBLIC_URL","https://ecopulse.example")
+    assert client.post('/api/v1/auth/register-local',json=PAYLOAD).status_code==404
     assert not state['requests']
 
 
