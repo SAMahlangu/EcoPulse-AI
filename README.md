@@ -11,9 +11,11 @@ EcoPulse is a responsive community resilience platform with React + TypeScript, 
 5. Start the API in `backend/` with `uvicorn app.main:app --reload` and the UI in `frontend/` with `npm run dev`.
 6. Open `http://localhost:5173`; API documentation is at `http://localhost:8000/docs`.
 
+The sample keeps local SQLite demo mode off. To intentionally run an isolated demo without Supabase, set `ECOPULSE_LOCAL_DEMO=true` in your local `backend/.env`; leave it `false` for any shared or deployed system.
+
 ## Supabase setup
 
-Configure `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in the frontend. Configure `SUPABASE_URL`, `DATABASE_URL`, and a supported JWT verification setup in the backend. Keep `SUPABASE_SERVICE_ROLE_KEY` backend-only; it is required for invitation email and private incident media. Set Supabase Auth email confirmation and redirect URLs for the deployed UI.
+Configure `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in the frontend. Configure `SUPABASE_URL`, `DATABASE_URL`, and a supported JWT verification setup in the backend. Keep `SUPABASE_SECRET_KEY` backend-only; it is required for invitation email and private incident media. Legacy `anon` and `service_role` variable names remain as migration fallbacks. Set Supabase Auth email confirmation and redirect URLs for the deployed UI.
 
 Review and apply migrations in order: `001_resident_portal.sql`, `002_climate_intelligence.sql`, `003_multi_role_platform.sql`, and `004_incident_reporting_onboarding.sql`. Apply first to a development Supabase project, then verify the RLS policies and Auth/Storage configuration before production. Migration 004 adds the private `incident-media` Storage bucket, report references and AI provenance, plus resident onboarding fields. It is additive; do not apply against an unreviewed production schema.
 
@@ -40,7 +42,7 @@ Run backend checks from the repository root with `PYTHONPATH=.` and `backend/ven
 
 Supabase migration 008 is applied and department/API/RLS isolation has been verified using rollback-only fixtures. The supplied custom YOLO weights load successfully; representative-image accuracy is not yet evaluated. Privacy/terms pages remain drafts; some community-resources, household management, and advanced analytics sections still depend on future data integration. SQLite mode is isolated local demo storage and is not appropriate for real resident records or public deployment.
 
-Weather uses Open-Meteo and transparent rule-based screening; it is not emergency guidance. Keep `SUPABASE_SERVICE_ROLE_KEY` out of frontend configuration and Git.
+Weather uses Open-Meteo and transparent rule-based screening; it is not emergency guidance. Keep `SUPABASE_SECRET_KEY` and the legacy `SUPABASE_SERVICE_ROLE_KEY` out of frontend configuration and Git.
 
 
 ### Local resident registration without email

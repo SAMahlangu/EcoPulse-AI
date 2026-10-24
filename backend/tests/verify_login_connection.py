@@ -17,10 +17,13 @@ sys.path.insert(0,str(ROOT))
 load_dotenv(ROOT/'backend/.env')
 from backend.app.services import network
 from backend.app.security import postgres_connection
+from backend.app.services.supabase_keys import supabase_secret_headers, supabase_secret_key
 
 url=os.environ['SUPABASE_URL'].rstrip('/')
-service_key=os.environ['SUPABASE_SERVICE_ROLE_KEY']
-admin_headers={'apikey':service_key,'Authorization':f'Bearer {service_key}'}
+service_key=supabase_secret_key()
+admin_headers=supabase_secret_headers()
+if not service_key:
+    raise RuntimeError('Configure the backend Supabase secret key before running this test.')
 email=f'login-verification-{uuid4().hex}@example.invalid'
 password=secrets.token_urlsafe(32)
 account_id=None

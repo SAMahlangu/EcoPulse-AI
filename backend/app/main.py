@@ -23,11 +23,14 @@ from pydantic import BaseModel, Field, model_validator
 load_dotenv(Path(__file__).resolve().parents[1]/".env")
 from .ai.climate_risk import ENGINE_VERSION, assess_dry_conditions, evaluate_forecast
 from .services import weather_service, network
+from .services.supabase_keys import supabase_secret_headers, supabase_secret_key
 from .workspace import router as workspace_router
 from .services.infrastructure_location import resolve_municipality
 from .infrastructure import router as infrastructure_router
 from .auth_gateway import router as auth_gateway_router
+from .ecomove import router as ecomove_router
 from .security import database_url, local_demo_enabled, optional_current_user, postgres_connection
+from .security_middleware import RequestBodyLimitMiddleware, SecurityHeadersMiddleware
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("ecopulse")
@@ -59,6 +62,7 @@ app = FastAPI(title="EcoPulse AI Platform API", version="0.2.0", description="Sh
 app.include_router(workspace_router)
 app.include_router(infrastructure_router)
 app.include_router(auth_gateway_router)
+app.include_router(ecomove_router)
 origins = [x.strip() for x in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",") if x.strip()]
 # Development URLs may use either loopback hostname, including Vite's fallback
 # and preview ports. Production origins remain explicitly configured.
@@ -66,6 +70,9 @@ local_origin_regex = r"http://(?:localhost|127\.0\.0\.1|\[::1\]):(?:517[3-9]|417
     origin in {"http://localhost:5173", "http://127.0.0.1:5173"} for origin in origins
 ) else None
 app.add_middleware(CORSMiddleware, allow_origins=origins, allow_origin_regex=local_origin_regex, allow_credentials=True, allow_methods=["GET", "POST", "PATCH", "PUT", "OPTIONS"], allow_headers=["Authorization", "Content-Type"])
+# These outer middleware layers also cover authentication and error responses.
+app.add_middleware(RequestBodyLimitMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 
 
 @app.exception_handler(RequestValidationError)
@@ -77,14 +84,6 @@ async def handle_validation_error(request: Request, exc: RequestValidationError)
         return JSONResponse({"detail": "Check the full name, email, province, municipality and password (8-128 characters)."}, status_code=422)
     return await request_validation_exception_handler(request, exc)
 
-
-@app.middleware("http")
-async def limit_incident_upload_body(request: Request, call_next):
-    if request.method == "POST" and request.url.path in {"/api/v1/incidents/analyze-image", "/api/v1/incidents/submit", "/api/v1/infrastructure/analyse", "/api/v1/infrastructure/detect"}:
-        length=request.headers.get("content-length")
-        if not length or not length.isdigit() or int(length)>11*1024*1024:
-            return JSONResponse({"detail":"Incident image requests must include a Content-Length and stay below 11 MB."},status_code=413)
-    return await call_next(request)
 
 class Reading(BaseModel):
     previous_reading: float = Field(ge=0)
@@ -203,7 +202,8 @@ async def submit_incident_with_media(request: Request, user: dict[str, Any] | No
     image.save(clean, format="JPEG", quality=88, optimize=True)
     image_bytes = clean.getvalue()
     supabase_url = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
-    service_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+    service_key = supabase_secret_key()
+    service_headers = supabase_secret_headers()
     if not database_url() or not supabase_url or not service_key:
         raise HTTPException(status_code=503, detail="Private incident image storage is not configured. Remove the photo to submit this report manually.")
     if incident.submission_key:
@@ -214,7 +214,7 @@ async def submit_incident_with_media(request: Request, user: dict[str, Any] | No
     uploaded_paths = []
     try:
         uploaded_paths.append(object_path)
-        response = await run_in_threadpool(lambda: network.request('POST', f"{supabase_url}/storage/v1/object/incident-media/{object_path}", headers={"apikey":service_key,"Authorization":f"Bearer {service_key}","Content-Type":"image/jpeg","x-upsert":"false"}, content=image_bytes, timeout=20))
+        response = await run_in_threadpool(lambda: network.request('POST', f"{supabase_url}/storage/v1/object/incident-media/{object_path}", headers={**service_headers,"Content-Type":"image/jpeg","x-upsert":"false"}, content=image_bytes, timeout=20))
         response.raise_for_status()
         reference = "ECO-" + str(datetime.now(timezone.utc).year) + "-" + uuid.uuid4().hex[:16].upper()
         with postgres_connection() as con:
@@ -245,7 +245,7 @@ async def submit_incident_with_media(request: Request, user: dict[str, Any] | No
                 annotated.save(annotated_bytes, format='JPEG', quality=85)
                 annotated_path = f"{user['id']}/{uuid.uuid4()}-annotated.jpg"
                 uploaded_paths.append(annotated_path)
-                annotated_response = await run_in_threadpool(lambda: network.request('POST', f"{supabase_url}/storage/v1/object/incident-media/{annotated_path}",headers={"apikey":service_key,"Authorization":f"Bearer {service_key}","Content-Type":"image/jpeg","x-upsert":"false"},content=annotated_bytes.getvalue(),timeout=20))
+                annotated_response = await run_in_threadpool(lambda: network.request('POST', f"{supabase_url}/storage/v1/object/incident-media/{annotated_path}",headers={**service_headers,"Content-Type":"image/jpeg","x-upsert":"false"},content=annotated_bytes.getvalue(),timeout=20))
                 annotated_response.raise_for_status()
                 con.execute("insert into public.incident_media(incident_id,owner_id,storage_path,content_type,media_kind) values(%s,%s,%s,'image/jpeg','annotated')", (row['id'],user['id'],annotated_path))
             con.execute("insert into public.incident_updates(incident_id,message,official,internal) values(%s,'Report submitted.',false,false)",(row["id"],))
@@ -258,14 +258,14 @@ async def submit_incident_with_media(request: Request, user: dict[str, Any] | No
     except HTTPException:
         for uploaded_path in uploaded_paths:
             try:
-                await run_in_threadpool(lambda: network.request('DELETE', f"{supabase_url}/storage/v1/object/incident-media/{uploaded_path}",headers={"apikey":service_key,"Authorization":f"Bearer {service_key}"},timeout=10))
+                await run_in_threadpool(lambda: network.request('DELETE', f"{supabase_url}/storage/v1/object/incident-media/{uploaded_path}",headers=service_headers,timeout=10))
             except httpx.HTTPError:
                 log.error('Incident storage cleanup needs retry for an uncommitted upload.')
         raise
     except Exception as exc:
         for uploaded_path in uploaded_paths:
             try:
-                await run_in_threadpool(lambda: network.request('DELETE', f"{supabase_url}/storage/v1/object/incident-media/{uploaded_path}",headers={"apikey":service_key,"Authorization":f"Bearer {service_key}"},timeout=10))
+                await run_in_threadpool(lambda: network.request('DELETE', f"{supabase_url}/storage/v1/object/incident-media/{uploaded_path}",headers=service_headers,timeout=10))
             except httpx.HTTPError:
                 log.error('Incident storage cleanup needs retry for an uncommitted upload.')
         log.error("Incident with media submission failed: %s", type(exc).__name__)
@@ -665,12 +665,12 @@ def resident_incident(incident_id: str, user: dict[str, Any] | None = Depends(op
         except HTTPException: raise
         except Exception as exc: raise HTTPException(503,"Could not load incident updates.") from exc
         media_items=[]
-        supabase_url=os.getenv("SUPABASE_URL","").strip().rstrip("/"); service_key=os.getenv("SUPABASE_SERVICE_ROLE_KEY","").strip()
+        supabase_url=os.getenv("SUPABASE_URL","").strip().rstrip("/"); service_key=supabase_secret_key()
         for item in media:
             url=None
             if supabase_url and service_key:
                 try:
-                    signed=network.request('POST', f"{supabase_url}/storage/v1/object/sign/incident-media/{item['storage_path']}",headers={"apikey":service_key,"Authorization":f"Bearer {service_key}"},json={"expiresIn":300},timeout=8)
+                    signed=network.request('POST', f"{supabase_url}/storage/v1/object/sign/incident-media/{item['storage_path']}",headers=supabase_secret_headers(),json={"expiresIn":300},timeout=8)
                     signed.raise_for_status(); path=signed.json().get("signedURL"); url=f"{supabase_url}/storage/v1{path}" if path and path.startswith("/") else path
                 except (httpx.HTTPError,ValueError): pass
             media_items.append({"content_type":item["content_type"],"url":url})

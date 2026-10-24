@@ -20,6 +20,9 @@ frontend/.env.local
 backend/.env
 backend/.ultralytics/
 diagnostics/login-browser-profile/
+diagnostics/ecomove-browser-profile/
+diagnostics/ecomove-desktop.png
+diagnostics/ecomove-mobile.png
 
 # Preserved metadata from the empty nested repository
 **/.git-backup/

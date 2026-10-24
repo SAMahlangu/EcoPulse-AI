@@ -1,6 +1,6 @@
 import { lazy, Suspense, useState, type ReactNode } from 'react';
 import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
-import { Activity, ChevronDown, CloudSun, Droplets, House, Lightbulb, Map, Menu, Plus, Settings, ShieldAlert, Sparkles, X, MapPin, ArrowUpRight, Leaf, Zap, CircleHelp } from 'lucide-react';
+import { Activity, Bus, ChevronDown, CloudSun, Droplets, House, Lightbulb, Map, Menu, Plus, Settings, ShieldAlert, Sparkles, X, MapPin, ArrowUpRight, Leaf, Zap, CircleHelp } from 'lucide-react';
 import { Overview } from './pages/Overview';
 import { Climate } from './pages/Climate';
 import { Water } from './pages/Water';
@@ -17,9 +17,12 @@ import { ResidentOnboarding } from './pages/ResidentOnboarding';
 import './pages/onboarding.css';
 const WorkspacePortal=lazy(()=>import('./pages/PortalDashboards').then(module=>({default:module.WorkspacePortal})));
 
+const EcoMoveDashboard=lazy(()=>import('./pages/EcoMoveDashboard'));
+
 const navigation = [
   { label:'Overview', path:'/resident', icon:House }, { label:'Climate intelligence', path:'/resident/climate', icon:CloudSun },
   { label:'Water management', path:'/resident/water', icon:Droplets }, { label:'Energy management', path:'/resident/energy', icon:Zap },
+  { label:'EcoMove AI', path:'/resident/ecomove', icon:Bus },
   { label:'Report an issue', path:'/resident/report-incident', icon:Plus }, { label:'Community map', path:'/resident/community-map', icon:Map },
   { label:'My reports', path:'/resident/my-reports', icon:ShieldAlert }, { label:'Community resources', path:'/resident/resources', icon:Leaf },
   { label:'AI assistant', path:'/resident/assistant', icon:Sparkles }, { label:'Profile & settings', path:'/resident/settings', icon:Settings },
@@ -38,7 +41,7 @@ function ResidentShell() {
     </aside>
     {open&&<button className="backdrop" aria-label="Close navigation" onClick={()=>setOpen(false)}/>}
     <main className="main-area"><header className="topbar"><button className="icon-button mobile-menu" aria-label="Open navigation" onClick={()=>setOpen(true)}><Menu size={20}/></button><div className="breadcrumb">Resident portal <span>/</span> <b>{title}</b></div><div className="top-actions"><div className="live-chip"><i/> Community portal</div><NotificationsMenu/><div className="top-avatar">{initials}</div></div></header>
-      <Routes><Route path="onboarding" element={<ResidentOnboarding/>}/><Route index element={<Overview/>}/><Route path="climate" element={<Climate/>}/><Route path="water" element={<Water/>}/><Route path="energy" element={<Energy/>}/><Route path="report-incident/*" element={<Incidents/>}/><Route path="incidents/*" element={<Incidents/>}/><Route path="my-reports" element={<ResidentReports/>}/><Route path="settings" element={<ResidentOnboarding/>}/><Route path="*" element={<SimplePage title={title}/>}/></Routes>
+      <Routes><Route path="onboarding" element={<ResidentOnboarding/>}/><Route index element={<Overview/>}/><Route path="climate" element={<Climate/>}/><Route path="water" element={<Water/>}/><Route path="energy" element={<Energy/>}/><Route path="ecomove" element={<Suspense fallback={<div className="auth-loading">Loading EcoMove map...</div>}><EcoMoveDashboard/></Suspense>}/><Route path="report-incident/*" element={<Incidents/>}/><Route path="incidents/*" element={<Incidents/>}/><Route path="my-reports" element={<ResidentReports/>}/><Route path="settings" element={<ResidentOnboarding/>}/><Route path="*" element={<SimplePage title={title}/>}/></Routes>
     </main>
   </div>
 }
