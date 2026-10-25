@@ -1,7 +1,7 @@
 import { useResidentArea } from './services/residentArea';
 import { lazy, Suspense, useState, type ReactNode } from 'react';
 import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
-import { Activity, Bus, ChevronDown, CloudSun, Droplets, House, Lightbulb, Map, Menu, Plus, Settings, ShieldAlert, Sparkles, X, MapPin, ArrowUpRight, Leaf, Zap, CircleHelp } from 'lucide-react';
+import { Bus, ChevronDown, CloudSun, Droplets, House, Lightbulb, Map, Menu, Plus, Settings, ShieldAlert, Sparkles, X, MapPin, ArrowUpRight, Leaf, Zap, CircleHelp } from 'lucide-react';
 import { Overview } from './pages/Overview';
 import { Assistant } from './pages/Assistant';
 import { Climate } from './pages/Climate';
@@ -37,7 +37,7 @@ function ResidentShell() {
   const title = navigation.find(n => n.path === location.pathname)?.label ?? 'EcoPulse AI';
   const initials=(user?.full_name??user?.email??'EP').split(/[ @]/).map(x=>x[0]).join('').slice(0,2).toUpperCase();
   return <div className="app-shell">
-    <aside className={`sidebar ${open?'sidebar-open':''}`}><div className="brand"><div className="brand-mark"><Activity size={20}/></div><span>eco<span className="brand-light">pulse</span><small>COMMUNITY RESILIENCE</small></span><button className="icon-button mobile-close" aria-label="Close navigation" onClick={()=>setOpen(false)}><X size={18}/></button></div>
+    <aside className={`sidebar ${open?'sidebar-open':''}`}><div className="brand"><img className="brand-logo" src="/ecopulse-ai-logo.png" alt="EcoPulse AI"/><button className="icon-button mobile-close" aria-label="Close navigation" onClick={()=>setOpen(false)}><X size={18}/></button></div>
       <div className="location-pill"><MapPin size={15}/><span><b>{area.data?.municipality_name || (area.isPending ? 'Loading area...' : 'Select your area')}</b><small>{area.data?.province || 'South Africa'}</small></span><ChevronDown size={15}/></div>
       <p className="nav-caption">YOUR COMMUNITY</p><nav>{navigation.map(item=><NavLink key={item.path} to={item.path} end={item.path==='/resident'} className={({isActive})=>`nav-link ${isActive?'active':''}`} onClick={()=>setOpen(false)}><item.icon size={18}/><span>{item.label}</span>{item.path==='/resident/report-incident'&&<span className="new-dot"/>}</NavLink>)}</nav>
       <div className="sidebar-bottom"><div className="help-card"><div className="help-icon"><CircleHelp size={17}/></div><b>Need a hand?</b><p>Find answers about EcoPulse and your community.</p><a href="#contact">Contact EcoPulse <ArrowUpRight size={13}/></a></div><button className="profile-row" onClick={()=>void logout()} title="Sign out"><div className="avatar">{initials}</div><span><b>{user?.full_name||user?.email}</b><small>Resident account · Sign out</small></span><ChevronDown size={15}/></button></div>
