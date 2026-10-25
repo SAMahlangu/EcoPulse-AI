@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: ecopulse-api
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.0
+      - key: ECOPULSE_LOCAL_DEMO
+        value: "false"
+      - key: ECOPULSE_LOCAL_PASSWORD_SIGNUP
+        value: "false"
+      - key: YOLO_MODEL_PATH
+        value: models/best.pt
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: SUPABASE_SECRET_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: APP_PUBLIC_URL
+        sync: false

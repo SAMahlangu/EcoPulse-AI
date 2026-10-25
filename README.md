@@ -19,6 +19,10 @@ Configure `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in the fronten
 
 Review and apply migrations in order: `001_resident_portal.sql`, `002_climate_intelligence.sql`, `003_multi_role_platform.sql`, and `004_incident_reporting_onboarding.sql`. Apply first to a development Supabase project, then verify the RLS policies and Auth/Storage configuration before production. Migration 004 adds the private `incident-media` Storage bucket, report references and AI provenance, plus resident onboarding fields. It is additive; do not apply against an unreviewed production schema.
 
+## Deployment
+
+Render and Netlify deployment configuration and environment-variable setup are documented in [docs/deployment.md](docs/deployment.md).
+
 Public registration provisions resident accounts only. On first login, a resident selects an existing province and municipality, enters a community/suburb, and chooses notification preferences. A trusted admin invitation grants municipal membership; admin role assignment remains server-side.
 
 ## Notification email setup
