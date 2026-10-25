@@ -1,6 +1,7 @@
 import asyncio
 from datetime import date
 
+import httpx
 from fastapi.testclient import TestClient
 from backend.app.ai.climate_risk import assess_dry_conditions, evaluate_forecast
 from backend.app.main import _aggregate_history, _reference_groups, _with_anomalies, app
@@ -21,6 +22,62 @@ def test_forecast_parser_normalizes_fields_and_directions(monkeypatch):
     assert result["current"]["condition"]=="Mainly clear"
     assert result["hourly"][0]["precipitation_probability"]==0
     assert result["daily"][0]["wind_gusts_max"]==25
+
+
+def test_forecast_uses_met_norway_when_open_meteo_is_rate_limited(monkeypatch):
+    raw = {
+        "properties": {
+            "timeseries": [
+                {
+                    "time": "2026-10-25T13:00:00Z",
+                    "data": {
+                        "instant": {"details": {
+                            "air_temperature": 32.6, "relative_humidity": 16.6,
+                            "wind_from_direction": 342.1, "wind_speed": 3.5,
+                            "cloud_area_fraction": 18.0,
+                        }},
+                        "next_1_hours": {
+                            "summary": {"symbol_code": "fair_day"},
+                            "details": {"precipitation_amount": 0.2},
+                        },
+                    },
+                },
+                {
+                    "time": "2026-10-25T14:00:00Z",
+                    "data": {
+                        "instant": {"details": {
+                            "air_temperature": 30.0, "relative_humidity": 20.0,
+                            "wind_from_direction": 300.0, "wind_speed": 4.0,
+                            "cloud_area_fraction": 25.0,
+                        }},
+                        "next_1_hours": {
+                            "summary": {"symbol_code": "rain"},
+                            "details": {"precipitation_amount": 1.0},
+                        },
+                    },
+                },
+            ],
+        },
+    }
+
+    async def fake_request(url, params, ttl):
+        if url == weather_service.FORECAST_URL:
+            request = httpx.Request("GET", url)
+            response = httpx.Response(429, request=request)
+            raise httpx.HTTPStatusError("rate limited", request=request, response=response)
+        assert url == weather_service.MET_FORECAST_URL
+        assert params == {"lat": -25.74486, "lon": 28.18783}
+        return raw
+
+    monkeypatch.setattr(weather_service, "_request", fake_request)
+    result = asyncio.run(weather_service.forecast(-25.74486, 28.18783))
+
+    assert result["source"] == "MET Norway Locationforecast API (fallback)"
+    assert result["current"]["temperature"] == 32.6
+    assert result["current"]["wind_speed"] == 12.6
+    assert result["current"]["condition"] == "Mainly clear"
+    assert result["daily"][0]["high"] == 32.6
+    assert result["daily"][0]["precipitation_sum"] == 1.2
 
 
 def test_historical_parser_preserves_daily_units(monkeypatch):

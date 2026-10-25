@@ -1,6 +1,6 @@
 ﻿# Climate Intelligence implementation
 
-The Climate Intelligence page is the current resident portal page in scope. It uses Open-Meteo for modelled forecast data, geocoding and historical ERA5 archive data. Forecast responses identify the source/data kind; historical records are daily archive values. The map displays the selected location's returned weather marker and coordinate-bearing community reports only. OpenStreetMap provides map tiles.
+The Climate Intelligence page is the current resident portal page in scope. It uses Open-Meteo for modelled forecast data, geocoding and historical ERA5 archive data. If Open-Meteo is rate-limited or unavailable, current and forecast conditions fall back to MET Norway Locationforecast; responses identify the actual source. Historical records are daily archive values from Open-Meteo. The map displays the selected location's returned weather marker and coordinate-bearing community reports only. OpenStreetMap provides map tiles.
 
 The resident dashboard uses a selected community centroid or municipality-boundary centroid when available. If reference municipalities have no geometry, it resolves an approximate populated-place coordinate through Open-Meteo geocoding and requires both municipality and province matches before showing local weather. This is an approximate municipal-area forecast, not a street-level observation.
 
@@ -31,6 +31,7 @@ The map API uses the development SQLite incident store and a small geographic bo
 
 - [Open-Meteo forecast API](https://open-meteo.com/en/docs/ecmwf-api)
 - [Open-Meteo historical weather API](https://open-meteo.com/en/docs/historical-weather-api)
+- [MET Norway Locationforecast API](https://api.met.no/weatherapi/locationforecast/2.0/documentation)
 - [SAWS weather questions: heatwave definition](https://testing.weathersa.co.za/home/weatherques)
 - [SAWS WeatherSMART: Gauteng rainfall thresholds](https://www.weathersa.co.za/Documents/Corporate/WeatherSmart_News_202210_03042025083216.pdf)
 - [SAWS WeatherSMART: wind thresholds](https://www.weathersa.co.za/Documents/Corporate/WeatherSmart_News_201608_03042025081249.pdf)
