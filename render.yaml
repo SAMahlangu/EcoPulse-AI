@@ -25,4 +25,6 @@ services:
       - key: DATABASE_URL
         sync: false
       - key: CORS_ORIGINS
-        value: "https://localhost"
+        value: "https://ecopulseaifnb.netlify.app"
+      - key: APP_PUBLIC_URL
+        value: "https://ecopulseaifnb.netlify.app"
