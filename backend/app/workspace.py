@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import os
+import re
 import hashlib
 import json
+import logging
 import secrets
 import time
 from collections import defaultdict, deque
@@ -12,14 +14,16 @@ from urllib.parse import urlsplit
 from uuid import UUID
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field, SecretStr
 
 from .services import network, weather_service
 from .services.supabase_keys import supabase_secret_headers, supabase_secret_key
 from .security import current_user, postgres_connection, require_roles
+from .email_notifications import send_user_notification_email
 
 router = APIRouter(prefix="/api/v1")
+log = logging.getLogger(__name__)
 _contact_attempts: dict[str, deque[float]] = defaultdict(deque)
 
 
@@ -53,6 +57,11 @@ class RoleRequest(BaseModel):
 
 class MunicipalityRequest(BaseModel):
     municipality_id: UUID
+
+
+class CommunityCreateRequest(BaseModel):
+    municipality_id: UUID
+    name: str = Field(min_length=2, max_length=120, pattern=r"\S.*\S")
 
 
 class MunicipalityImportVerification(BaseModel):
@@ -122,6 +131,7 @@ def _execute(sql: str, params: tuple[Any, ...] = (), *, fetch: str = "all"):
     except HTTPException:
         raise
     except Exception as exc:
+        log.exception("Workspace database query failed")
         raise HTTPException(status_code=503, detail="The shared platform database is unavailable or needs migration 003.") from exc
 
 
@@ -141,6 +151,14 @@ def _scope(user: dict[str, Any]) -> list[str]:
 def location_provinces():
     rows = _execute("select id::text,name,code from public.provinces order by name")
     return {"items": [dict(row) for row in rows]}
+
+
+def _municipality_key(name: str) -> str:
+    """Compare administrative labels without fuzzy or substring matching."""
+    name = re.sub(r"\bward\s*\d+\b.*$", "", name.casefold()).strip()
+    name = re.sub(r"^city of\s+", "", name)
+    name = re.sub(r"\s+(?:(?:metropolitan|local|district)\s+)?municipality$", "", name)
+    return " ".join(re.findall(r"\w+", name))
 
 
 @router.get("/locations/reverse")
@@ -180,6 +198,7 @@ async def reverse_geocode_location(
         if municipality is None:
             candidates = list(dict.fromkeys(filter(None, (
                 place.get("municipality"), place.get("locality"),
+                *place.get("municipality_candidates", []),
             ))))
             if candidates:
                 try:
@@ -192,6 +211,21 @@ async def reverse_geocode_location(
                              and lower(p.name)=lower(coalesce(%s,p.name))""",
                         ([name.casefold() for name in candidates], place.get("province")),
                     )
+                    if len(matches) == 1:
+                        municipality = dict(matches[0])
+                except HTTPException:
+                    pass
+
+            if municipality is None and candidates and place.get("province"):
+                try:
+                    rows = _execute(
+                        """select m.id::text,m.name,m.province_id::text,p.name as province
+                           from public.municipalities m join public.provinces p on p.id=m.province_id
+                           where m.is_demonstration is false
+                             and m.municipality_type in ('local','metropolitan')
+                             and lower(p.name)=lower(%s)""", (place["province"],))
+                    keys = {_municipality_key(name) for name in candidates} - {""}
+                    matches = [row for row in rows if _municipality_key(row["name"]) in keys]
                     if len(matches) == 1:
                         municipality = dict(matches[0])
                 except HTTPException:
@@ -382,7 +416,9 @@ def auth_me(user: dict[str, Any] = Depends(current_user)):
 @router.get("/resident/onboarding")
 def resident_onboarding(user: dict[str, Any] = Depends(require_roles("resident"))):
     profile = _execute("""select coalesce(m.province_id,p.id)::text as province_id,profile.province,
-        profile.municipality_id::text,profile.community_id::text,profile.suburb,
+        profile.municipality_id::text,m.name as municipality_name,profile.community_id::text,profile.suburb,
+        case when m.boundary is not null then extensions.st_y(extensions.st_centroid(m.boundary::extensions.geometry)) end as latitude,
+        case when m.boundary is not null then extensions.st_x(extensions.st_centroid(m.boundary::extensions.geometry)) end as longitude,
         profile.notification_preferences,profile.onboarding_completed_at
         from public.profiles profile left join public.municipalities m on m.id=profile.municipality_id
         left join public.provinces p on lower(p.name)=lower(profile.province)
@@ -459,9 +495,18 @@ def submit_contact(form: ContactRequest, request: Request):
         raise HTTPException(status_code=429, detail="Please wait before sending another message.")
     attempts.append(now)
     # A configured service database is required; contact content is not persisted to a local demo DB.
-    _execute("insert into public.contact_enquiries(full_name,email,organisation,subject,message) values (%s,%s,%s,%s,%s)",
-             (form.full_name.strip(), form.email.strip().lower(), form.organisation, form.subject.strip(), form.message.strip()))
+    _execute("insert into public.contact_enquiries(full_name,email,organisation,subject,message) values (%s,%s,%s,%s,%s) returning id",
+             (form.full_name.strip(), form.email.strip().lower(), form.organisation, form.subject.strip(), form.message.strip()), fetch="one")
     return {"accepted": True}
+
+
+@router.get("/admin/enquiries")
+def admin_enquiries(limit: int = Query(25, ge=1, le=100), offset: int = Query(0, ge=0),
+                    user: dict[str, Any] = Depends(require_roles("admin"))):
+    rows = _execute("""select id::text,full_name,email,organisation,subject,message,created_at
+        from public.contact_enquiries order by created_at desc,id desc limit %s offset %s""", (limit, offset))
+    count = _execute("select count(*) as total from public.contact_enquiries", fetch="one")
+    return {"items": [dict(row) for row in rows], "total": count["total"], "limit": limit, "offset": offset}
 
 
 @router.get("/notifications")
@@ -548,6 +593,7 @@ def municipal_incident(incident_id: str, user: dict[str, Any] = Depends(require_
 
 @router.patch("/municipal/incidents/{incident_id}/status")
 def update_incident_status(incident_id: str, update: StatusUpdate,
+                           background_tasks: BackgroundTasks,
                            user: dict[str, Any] = Depends(require_roles("municipal"))):
     try:
         with postgres_connection() as connection:
@@ -588,11 +634,13 @@ def update_incident_status(incident_id: str, update: StatusUpdate,
         raise
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Could not update the incident. Confirm migration 003 is applied.") from exc
+    background_tasks.add_task(send_user_notification_email, row["reporter_id"], f"Report update: {row['title']}", update.message, "incident_updates")
     return {"id": row["id"], "status": row["status"], "updated_at": datetime.now(timezone.utc).isoformat()}
 
 
 @router.post("/municipal/incidents/{incident_id}/notes", status_code=201)
 def add_incident_note(incident_id: str, note: IncidentNote,
+                      background_tasks: BackgroundTasks,
                       user: dict[str, Any] = Depends(require_roles("municipal"))):
     try:
         with postgres_connection() as connection:
@@ -610,6 +658,8 @@ def add_incident_note(incident_id: str, note: IncidentNote,
         raise
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Could not save the incident note.") from exc
+    if not note.internal:
+        background_tasks.add_task(send_user_notification_email, reporter["reporter_id"], f"Report update: {reporter['title']}", note.message, "incident_updates")
     return {"id": row["id"], "created_at": row["created_at"]}
 
 
@@ -747,8 +797,42 @@ def set_user_role(user_id: str, form: RoleRequest, user: dict[str, Any] = Depend
 
 @router.get("/admin/municipalities")
 def admin_municipalities(user: dict[str, Any] = Depends(require_roles("admin"))):
-    rows = _execute("select m.id::text,m.name,m.province,m.province_id::text,m.code,m.municipality_type,m.parent_municipality_id::text,m.is_demonstration,coalesce((to_jsonb(m)->>'is_onboarded')::boolean,false) as is_onboarded,m.created_at,(select count(*) from public.municipal_memberships mm where mm.municipality_id=m.id and mm.status='active') as active_members from public.municipalities m where m.is_demonstration is false order by m.province,m.name")
+    rows = _execute("select m.id::text,m.name,m.province,m.province_id::text,m.code,m.municipality_type,m.parent_municipality_id::text,m.is_demonstration,m.reference_verified,m.reference_active,coalesce((to_jsonb(m)->>'is_onboarded')::boolean,false) as is_onboarded,m.created_at,(select count(*) from public.municipal_memberships mm where mm.municipality_id=m.id and mm.status='active') as active_members from public.municipalities m where m.is_demonstration is false order by m.province,m.name")
     return {"items":[dict(row) for row in rows]}
+
+
+@router.get("/admin/communities")
+def admin_communities(municipality_id: UUID = Query(...), user: dict[str, Any] = Depends(require_roles("admin"))):
+    rows = _execute("""select c.id::text,c.municipality_id::text,c.name,c.created_at,
+      (select count(*) from public.profiles p where p.community_id=c.id) as resident_count
+      from public.communities c join public.municipalities m on m.id=c.municipality_id
+      where c.municipality_id=%s and m.is_demonstration is false order by c.name""", (municipality_id,))
+    return {"items": [dict(row) for row in rows]}
+
+
+@router.post("/admin/communities", status_code=201)
+def create_community(form: CommunityCreateRequest, user: dict[str, Any] = Depends(require_roles("admin"))):
+    name = form.name.strip()
+    try:
+        with postgres_connection() as connection:
+            municipality = connection.execute("""select id::text,name from public.municipalities
+              where id=%s and is_demonstration is false and municipality_type in ('local','metropolitan')""",
+              (form.municipality_id,)).fetchone()
+            if not municipality:
+                raise HTTPException(status_code=422, detail="Choose a verified, active municipality from the official list.")
+            row = connection.execute("""insert into public.communities(municipality_id,name)
+              values(%s,%s) on conflict(municipality_id,name) do nothing
+              returning id::text,municipality_id::text,name,created_at""", (form.municipality_id,name)).fetchone()
+            if not row:
+                raise HTTPException(status_code=409, detail="That community is already configured for this municipality.")
+            connection.execute("""insert into public.admin_audit_logs(actor_id,action,target_type,target_id,details)
+              values(%s,'community_created','community',%s,%s::jsonb)""",
+              (user["id"],row["id"],json.dumps({"municipality_id":row["municipality_id"],"name":name})))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Could not save the community. Confirm the database migrations are applied.") from exc
+    return dict(row)
 
 
 @router.get("/admin/municipality-imports")

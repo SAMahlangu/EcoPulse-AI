@@ -367,3 +367,23 @@ def test_accepting_invitation_assigns_profile_province_and_scoped_membership(cli
     assert "insert into public.municipal_memberships" in statements[2][0]
     assert statements[2][1] == ("official-id", municipality_id)
     assert response.json()["role"] == "municipal"
+
+
+@pytest.mark.parametrize('label', ['Tshwane Ward 36', 'City of Tshwane Metropolitan Municipality', 'Tshwane'])
+def test_reverse_location_matches_ward_to_unique_municipality(client, monkeypatch, label):
+    async def reverse(*args):
+        return {'label': 'Aubrey Matlala Street, Tshwane Ward 36, Gauteng', 'locality': label, 'province': 'Gauteng', 'country_code': 'za', 'source': 'OpenStreetMap Nominatim'}
+    monkeypatch.setattr(workspace.weather_service, 'reverse_location', reverse)
+    def execute(sql, params=(), **kwargs):
+        if 'st_covers' in sql or 'any(%s)' in sql:
+            return []
+        return [{'id':'tshwane-id', 'name':'City of Tshwane', 'province_id':'gauteng-id', 'province':'Gauteng'}]
+    monkeypatch.setattr(workspace, '_execute', execute)
+    response=client.get('/api/v1/locations/reverse?latitude=-25.54629&longitude=28.09448')
+    assert response.status_code == 200
+    assert response.json()['municipality']['id'] == 'tshwane-id'
+    assert response.json()['province']['id'] == 'gauteng-id'
+
+
+def test_municipality_labels_do_not_match_substrings():
+    assert workspace._municipality_key('New Tshwane') != workspace._municipality_key('City of Tshwane')

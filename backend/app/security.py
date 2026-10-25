@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import socket
+import logging
 import time
 from typing import Any
 
@@ -11,6 +12,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwk, jwt
 from .services import network
 
+log = logging.getLogger(__name__)
 bearer = HTTPBearer(auto_error=False)
 _jwks: dict[str, Any] = {"expires": 0, "keys": []}
 
@@ -43,6 +45,7 @@ def postgres_connection():
                     connection_options['hostaddr'] = network.resolve_ipv4(host)[0]
         return psycopg.connect(database_url(), **connection_options)
     except Exception as exc:
+        log.exception("Supabase Postgres connection failed")
         raise HTTPException(status_code=503, detail="Supabase database is currently unavailable.") from exc
 
 
@@ -60,11 +63,21 @@ def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bear
             verification_key: Any = secret
         elif algorithm in ("RS256", "ES256"):
             now = time.monotonic()
-            if now >= _jwks["expires"]:
-                response = network.request('GET', f"{supabase_url}/auth/v1/.well-known/jwks.json", timeout=8)
-                response.raise_for_status()
-                _jwks.update(keys=response.json().get("keys", []), expires=now + 300)
-            jwk_value = next((key for key in _jwks["keys"] if key.get("kid") == header.get("kid")), None)
+            key_id = header.get("kid")
+            jwk_value = next((key for key in _jwks["keys"] if key.get("kid") == key_id), None)
+            if now >= _jwks["expires"] or jwk_value is None:
+                try:
+                    response = network.request('GET', f"{supabase_url}/auth/v1/.well-known/jwks.json", timeout=8)
+                    response.raise_for_status()
+                    keys = response.json().get("keys", [])
+                    if not isinstance(keys, list):
+                        raise ValueError("Supabase returned an invalid signing-key set")
+                    _jwks.update(keys=keys, expires=now + 300)
+                    jwk_value = next((key for key in keys if key.get("kid") == key_id), None)
+                except (httpx.HTTPError, ValueError):
+                    # Keep authenticating with a known key during a brief Supabase/network outage.
+                    if jwk_value is None:
+                        raise
             if not jwk_value:
                 raise JWTError("Unknown signing key")
             verification_key = jwk.construct(jwk_value, algorithm=algorithm)
@@ -73,7 +86,7 @@ def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bear
         claims = jwt.decode(credentials.credentials, verification_key, algorithms=[algorithm], audience="authenticated", issuer=f"{supabase_url}/auth/v1")
     except JWTError as exc:
         raise HTTPException(status_code=401, detail="The session is invalid or expired.", headers={"WWW-Authenticate": "Bearer"}) from exc
-    except httpx.HTTPError as exc:
+    except (httpx.HTTPError, ValueError) as exc:
         raise HTTPException(status_code=503, detail="Could not retrieve the Supabase signing keys.") from exc
     user_id = claims.get("sub")
     if not user_id:

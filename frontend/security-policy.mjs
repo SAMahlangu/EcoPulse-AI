@@ -5,6 +5,7 @@ export function securityPolicyPlugin({ apiOrigin, supabaseOrigin }) {
     "'self'",
     "data:",
     "blob:",
+    "https://tile.openstreetmap.org",
     "https://*.tile.openstreetmap.org",
     supabaseOrigin,
   ].filter(Boolean);

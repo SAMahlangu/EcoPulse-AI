@@ -7,6 +7,7 @@ psycopg[binary]>=3.2,<4
 python-jose[cryptography]>=3.3,<4
 pytest>=8,<9
 python-dotenv>=1.0,<2
+resend
 python-multipart>=0.0.9,<1
 Pillow>=10,<13
 ultralytics>=8.3,<9

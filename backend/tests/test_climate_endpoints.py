@@ -41,11 +41,24 @@ def test_climate_map_returns_only_real_coordinate_marker(climate_client):
     assert "no spatial interpolation" in result["note"].lower()
 
 
-def test_advisor_answers_from_the_requested_daily_forecast(climate_client):
-    response=climate_client.post("/api/v1/climate/advisor",json={"question":"Will it be hot tomorrow?"})
-    assert response.status_code==200
-    assert "41°C" in response.json()["answer"]
-    assert "Mock Open-Meteo"==response.json()["source"]
+def test_advisor_answers_from_the_requested_daily_forecast(climate_client, monkeypatch):
+    import httpx
+    import json
+    from backend.app.services import climate_advisor
+    monkeypatch.setenv('GEMINI_API_KEY', 'test-key')
+    def gemini(method, url, **kwargs):
+        context = json.loads(kwargs['json']['contents'][0]['parts'][0]['text'])
+        assert context['question'] == 'Can I swim this Sunday?'
+        assert context['weather']['daily'][0]['high'] == 41
+        assert context['weather']['location']['latitude'] == -30
+        assert context['current_date_south_africa']
+        return httpx.Response(200, request=httpx.Request('POST', url), json={'candidates':[{'content':{'parts':[{'text':'The supplied forecast does not cover Sunday.'}]}}]})
+    monkeypatch.setattr(climate_advisor.network, 'request', gemini)
+    response=climate_client.post('/api/v1/climate/advisor',json={'question':'Can I swim this Sunday?', 'latitude':-30, 'longitude':25})
+    assert response.status_code == 200
+    assert response.json()['answer'] == 'The supplied forecast does not cover Sunday.'
+    assert 'Gemini' in response.json()['method']
+    assert response.json()['source'] == 'Mock Open-Meteo'
 
 
 def test_history_rejects_future_end_date(climate_client):

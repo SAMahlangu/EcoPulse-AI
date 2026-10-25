@@ -21,6 +21,12 @@ Review and apply migrations in order: `001_resident_portal.sql`, `002_climate_in
 
 Public registration provisions resident accounts only. On first login, a resident selects an existing province and municipality, enters a community/suburb, and chooses notification preferences. A trusted admin invitation grants municipal membership; admin role assignment remains server-side.
 
+## Notification email setup
+
+Set `RESEND_API_KEY` and `RESEND_FROM` in `backend/.env`, then restart the API. Use a sender address on a verified Resend domain. Resend takes priority when its API key is set; otherwise the existing `SMTP_*` settings are used. Supabase Auth email configuration is separate from application notifications.
+
+Incident updates and municipal service alert updates email the resident's account address, respecting their `incident_updates` and `municipal_notices` preferences. Delivery runs in the background; provider failures leave the in-app notification intact. Check API logs for Resend acceptance or HTTP rejection status. Acceptance does not confirm inbox delivery; check the Resend dashboard for delivery/bounce status. These background tasks are not a durable queue and do not retry failed deliveries.
+
 ## Incident image analysis
 
 Residents can take or select a JPEG, PNG, or WebP photo, optionally request analysis, review or change the suggested category, and submit with or without a photo. FastAPI checks the decoded image, restricts it to 10 MB and 25 megapixels, fixes orientation, converts to RGB, resizes it, and strips metadata before inference/storage. Supabase Storage is private; the API issues short-lived signed links only after checking the resident or municipal incident scope. The optional model-training consent is false by default and is stored separately from AI and resident-confirmed labels.

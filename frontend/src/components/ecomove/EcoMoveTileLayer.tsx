@@ -54,7 +54,8 @@ export default function EcoMoveTileLayer() {
   return <>
     <TileLayer key={generation}
       attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+      url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+      updateWhenIdle updateWhenZooming={false} keepBuffer={1}
       eventHandlers={handlers}/>
     {status && <div ref={notice} role="status" aria-live="polite" data-testid="ecomove-tile-status"
       style={{ position: 'absolute', left: 12, bottom: 88, right: 54, maxWidth: 345, zIndex: 700,

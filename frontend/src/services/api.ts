@@ -1,27 +1,46 @@
 import { getAccessToken } from './auth';
 const API = import.meta.env.VITE_API_URL ?? 'http://localhost:8000/api/v1';
+function errorMessage(detail: unknown, fallback: string): string {
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item: unknown) => {
+        if (!item || typeof item !== 'object') return '';
+        const error = item as { msg?: unknown; loc?: unknown[] };
+        const message = typeof error.msg === 'string' ? error.msg.replace(/^Value error,\s*/i, '') : '';
+        const field = Array.isArray(error.loc) ? error.loc[error.loc.length - 1] : undefined;
+        return message ? `${field && field !== 'body' ? `${String(field).replace(/_/g, ' ')}: ` : ''}${message}` : '';
+      })
+      .filter(Boolean)
+      .join('. ') || fallback;
+  }
+  return fallback;
+}
 export async function getJson<T>(path: string): Promise<T> {
   const token = getAccessToken();
   const response = await fetch(`${API}${path}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
-  if (!response.ok) throw new Error(`Request failed (${response.status})`);
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(errorMessage(payload.detail, `Request failed (${response.status})`));
+  }
   return response.json() as Promise<T>;
 }
 export async function postJson<T>(path: string, body: unknown): Promise<T> {
   const token = getAccessToken();
   const response = await fetch(`${API}${path}`, { method: 'POST', headers: {'Content-Type':'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {})}, body: JSON.stringify(body) });
-  if (!response.ok) { const detail = await response.json().catch(() => ({})); throw new Error(detail.detail ?? `Request failed (${response.status})`); }
+  if (!response.ok) { const payload = await response.json().catch(() => ({})); throw new Error(errorMessage(payload.detail, `Request failed (${response.status})`)); }
   return response.json() as Promise<T>;
 }
 export async function postForm<T>(path: string, body: FormData): Promise<T> {
   const token = getAccessToken();
   const response = await fetch(`${API}${path}`, { method: 'POST', headers: token ? { Authorization: `Bearer ${token}` } : {}, body });
-  if (!response.ok) { const detail = await response.json().catch(() => ({})); throw new Error(detail.detail ?? `Request failed (${response.status})`); }
+  if (!response.ok) { const payload = await response.json().catch(() => ({})); throw new Error(errorMessage(payload.detail, `Request failed (${response.status})`)); }
   return response.json() as Promise<T>;
 }
 export async function putJson<T>(path: string, body: unknown): Promise<T> {
   const token = getAccessToken();
   const response = await fetch(`${API}${path}`, { method: 'PUT', headers: {'Content-Type':'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {})}, body: JSON.stringify(body) });
-  if (!response.ok) { const detail = await response.json().catch(() => ({})); throw new Error(detail.detail ?? `Request failed (${response.status})`); }
+  if (!response.ok) { const payload = await response.json().catch(() => ({})); throw new Error(errorMessage(payload.detail, `Request failed (${response.status})`)); }
   return response.json() as Promise<T>;
 }
 export async function patchJson<T>(path: string, body: unknown): Promise<T> {

@@ -2,12 +2,13 @@
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from .services import network
 from .services.supabase_keys import supabase_secret_headers, supabase_secret_key
 from .security import postgres_connection, require_roles
+from .email_notifications import send_user_notification_email
 
 router = APIRouter(prefix='/api/v1/infrastructure')
 
@@ -51,6 +52,18 @@ def require_report(con, report_id, user, manager=False):
         if not allowed['allowed']:
             raise HTTPException(403, 'A department manager or municipal administrator is required.')
     return row
+
+
+def notify_reporter(con, report, message):
+    if report['reporter_id']:
+        con.execute("insert into public.notifications(resident_id,title,body,category,official) values(%s,%s,%s,'incident_update',true)",
+                    (report['reporter_id'], f"Report update: {report['title']}", message))
+
+
+def queue_reporter_email(background_tasks, report, message):
+    if report['reporter_id']:
+        background_tasks.add_task(send_user_notification_email, str(report['reporter_id']),
+                                  f"Report update: {report['title']}", message, 'incident_updates')
 
 
 @router.get('/departments/my')
@@ -109,7 +122,7 @@ def configure_routing(municipality_id: UUID, data: Routing, user=Depends(require
 
 
 @router.post('/reports/{report_id}/assign')
-def assign_technician(report_id: UUID, data: Assignment, user=Depends(require_roles('municipal'))):
+def assign_technician(report_id: UUID, data: Assignment, background_tasks: BackgroundTasks, user=Depends(require_roles('municipal'))):
     with postgres_connection() as con:
         row=require_report(con, report_id, user, manager=True)
         if row['status'] in ('resolved','closed','rejected','duplicate','unable_to_verify'):
@@ -119,7 +132,10 @@ def assign_technician(report_id: UUID, data: Assignment, user=Depends(require_ro
         con.execute('''insert into public.incident_assignments(incident_id,assigned_to,assigned_by) values(%s,%s,%s)
           on conflict(incident_id,assigned_to) do nothing''', (report_id,data.assigned_to,user['id']))
         con.execute("update public.incidents set status='assigned',updated_at=now() where id=%s", (report_id,))
-        con.execute("insert into public.incident_updates(incident_id,author_id,status,message,official) values(%s,%s,'assigned','A technician has been assigned.',true)", (report_id,user['id']))
+        message = 'A technician has been assigned to your report.'
+        con.execute("insert into public.incident_updates(incident_id,author_id,status,message,official) values(%s,%s,'assigned',%s,true)", (report_id,user['id'],message))
+        notify_reporter(con, row, message)
+    queue_reporter_email(background_tasks, row, message)
     return {'success': True}
 
 
@@ -127,16 +143,24 @@ def assign_technician(report_id: UUID, data: Assignment, user=Depends(require_ro
 def workflow(report_id: UUID, user=Depends(require_roles('municipal'))):
     with postgres_connection() as con:
         row=require_report(con,report_id,user)
+        permissions=con.execute('''select exists(select 1 from public.municipal_memberships
+          where user_id=%s and municipality_id=%s and status='active' and can_manage_all_departments)
+          or exists(select 1 from public.department_memberships where user_id=%s and department_id=%s
+          and is_active and role='manager') as can_manage_department''',
+          (user['id'],row['municipality_id'],user['id'],row['department_id'])).fetchone()
         departments=con.execute('select id::text,department_name from public.municipal_departments where municipality_id=%s and is_active order by department_name',(row['municipality_id'],)).fetchall()
+        current_department=con.execute('select department_name from public.municipal_departments where id=%s',(row['department_id'],)).fetchone()
         technicians=con.execute('''select p.id::text,p.full_name from public.profiles p
           where public.can_manage_incident(%s,p.id) order by p.full_name''',(report_id,)).fetchall()
         assignments=con.execute('''select p.full_name,a.assigned_to::text,a.created_at from public.incident_assignments a
           join public.profiles p on p.id=a.assigned_to where a.incident_id=%s''',(report_id,)).fetchall()
-    return {'departments':departments,'technicians':technicians,'assignments':assignments}
+    return {'departments':departments,'technicians':technicians,'assignments':assignments,
+            'current_department':current_department['department_name'] if current_department else None,
+            'can_manage_department':bool(permissions['can_manage_department'])}
 
 
 @router.post('/reports/{report_id}/completion-image',status_code=201)
-async def completion_image(report_id: UUID, request: Request, user=Depends(require_roles('municipal'))):
+async def completion_image(report_id: UUID, request: Request, background_tasks: BackgroundTasks, user=Depends(require_roles('municipal'))):
     import io
     import os
     import httpx
@@ -169,24 +193,30 @@ async def completion_image(report_id: UUID, request: Request, user=Depends(requi
             row=require_report(con,report_id,user)
             # The reporter can read repair evidence through the existing private report view.
             con.execute("insert into public.incident_media(incident_id,owner_id,storage_path,content_type,media_kind) values(%s,%s,%s,'image/jpeg','repair')",(report_id,row['reporter_id'],path))
-            con.execute("insert into public.incident_updates(incident_id,author_id,message,official) values(%s,%s,'Repair completion photo uploaded for review.',true)",(report_id,user['id']))
+            message='The municipality added a repair completion photo for your report.'
+            con.execute("insert into public.incident_updates(incident_id,author_id,message,official) values(%s,%s,%s,true)",(report_id,user['id'],message))
+            notify_reporter(con,row,message)
     except Exception as exc:
         if uploaded:
             try: await run_in_threadpool(lambda:network.request('DELETE', f'{url}/storage/v1/object/incident-media/{path}',headers=headers,timeout=10))
             except httpx.HTTPError: pass
         if isinstance(exc,HTTPException): raise
         raise HTTPException(503,'Could not save the repair image. Please retry.') from exc
+    queue_reporter_email(background_tasks,row,message)
     return {'success':True}
 
 
 @router.post('/reports/{report_id}/reassign')
-def reassign(report_id: UUID, data: Reassignment, user=Depends(require_roles('municipal'))):
+def reassign(report_id: UUID, data: Reassignment, background_tasks: BackgroundTasks, user=Depends(require_roles('municipal'))):
     with postgres_connection() as con:
         row=require_report(con, report_id,user,manager=True)
         if not con.execute('select 1 from public.municipal_departments where id=%s and municipality_id=%s and is_active',(data.department_id,row['municipality_id'])).fetchone():
             raise HTTPException(422, 'Reassignment must remain within this municipality.')
         con.execute('update public.incidents set department_id=%s,updated_at=now() where id=%s',(data.department_id,report_id))
         con.execute('delete from public.incident_assignments where incident_id=%s',(report_id,))
-        con.execute('insert into public.incident_updates(incident_id,author_id,message,official) values(%s,%s,%s,true)',(report_id,user['id'],'Report reassigned: '+data.notes))
+        message='Your report was reassigned to another municipal department: '+data.notes
+        con.execute('insert into public.incident_updates(incident_id,author_id,message,official) values(%s,%s,%s,true)',(report_id,user['id'],message))
+        notify_reporter(con,row,message)
         con.execute("insert into public.admin_audit_logs(actor_id,action,target_type,target_id) values(%s,'report_reassigned','incident',%s)",(user['id'],str(report_id)))
+    queue_reporter_email(background_tasks,row,message)
     return {'success': True}

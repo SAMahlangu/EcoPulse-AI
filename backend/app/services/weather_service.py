@@ -139,6 +139,8 @@ async def reverse_location(latitude: float, longitude: float) -> dict[str, Any]:
         "locality": locality,
         "province": address.get("state"),
         "municipality": address.get("municipality"),
+        "municipality_candidates": list(dict.fromkeys(address[field] for field in
+            ("municipality", "city", "city_district", "county", "state_district") if address.get(field))),
         "country_code": address.get("country_code"),
         "source": "OpenStreetMap Nominatim",
     }

@@ -29,6 +29,8 @@ from .services.infrastructure_location import resolve_municipality
 from .infrastructure import router as infrastructure_router
 from .auth_gateway import router as auth_gateway_router
 from .ecomove import router as ecomove_router
+from .service_alerts import router as service_alerts_router
+from .assistant import router as assistant_router
 from .security import database_url, local_demo_enabled, optional_current_user, postgres_connection
 from .security_middleware import RequestBodyLimitMiddleware, SecurityHeadersMiddleware
 
@@ -63,16 +65,14 @@ app.include_router(workspace_router)
 app.include_router(infrastructure_router)
 app.include_router(auth_gateway_router)
 app.include_router(ecomove_router)
+app.include_router(service_alerts_router)
+app.include_router(assistant_router)
 origins = [x.strip() for x in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",") if x.strip()]
 # Development URLs may use either loopback hostname, including Vite's fallback
 # and preview ports. Production origins remain explicitly configured.
 local_origin_regex = r"http://(?:localhost|127\.0\.0\.1|\[::1\]):(?:517[3-9]|4173)" if any(
     origin in {"http://localhost:5173", "http://127.0.0.1:5173"} for origin in origins
 ) else None
-app.add_middleware(CORSMiddleware, allow_origins=origins, allow_origin_regex=local_origin_regex, allow_credentials=True, allow_methods=["GET", "POST", "PATCH", "PUT", "OPTIONS"], allow_headers=["Authorization", "Content-Type"])
-# These outer middleware layers also cover authentication and error responses.
-app.add_middleware(RequestBodyLimitMiddleware)
-app.add_middleware(SecurityHeadersMiddleware)
 
 
 @app.exception_handler(RequestValidationError)
@@ -84,6 +84,23 @@ async def handle_validation_error(request: Request, exc: RequestValidationError)
         return JSONResponse({"detail": "Check the full name, email, province, municipality and password (8-128 characters)."}, status_code=422)
     return await request_validation_exception_handler(request, exc)
 
+
+@app.middleware("http")
+async def limit_incident_upload_body(request: Request, call_next):
+    if request.method == "POST" and request.url.path in {"/api/v1/incidents/analyze-image", "/api/v1/incidents/submit", "/api/v1/infrastructure/analyse", "/api/v1/infrastructure/detect"}:
+        length=request.headers.get("content-length")
+        if not length or not length.isdigit() or int(length)>11*1024*1024:
+            return JSONResponse({"detail":"Incident image requests must include a Content-Length and stay below 11 MB."},status_code=413)
+    return await call_next(request)
+
+
+# Add CORS after the upload guard so it wraps that middleware and adds CORS
+# headers to early responses (for example, a 413 caused by a missing or large
+# Content-Length). Otherwise browsers mask the useful response as a CORS error.
+app.add_middleware(RequestBodyLimitMiddleware)
+app.add_middleware(CORSMiddleware, allow_origins=origins, allow_origin_regex=local_origin_regex, allow_credentials=True, allow_methods=["GET", "POST", "PATCH", "PUT", "OPTIONS"], allow_headers=["Authorization", "Content-Type"])
+
+app.add_middleware(SecurityHeadersMiddleware)
 
 class Reading(BaseModel):
     previous_reading: float = Field(ge=0)
@@ -497,38 +514,10 @@ class AdvisorQuestion(BaseModel):
 async def climate_advisor(request: AdvisorQuestion):
     weather=await fetch_weather(request.latitude,request.longitude)
     assessment=evaluate_forecast(weather)
-    q=request.question.casefold()
-    if any(word in q for word in ("precaution","prepare","what should i do")):
-        hazard="heat" if "heat" in q or "hot" in q else "heavy_rain" if "rain" in q else "strong_wind" if "wind" in q else "dry_conditions" if "dry" in q else None
-        matched=[x for x in assessment["risks"] if x["level"] not in ("low","unavailable") and (hazard is None or x["risk"]==hazard)]
-        actions=[action for item in matched for action in item["precautions"]]
-        answer="Based on the available forecast, " + (" ".join(actions) if actions else "no elevated hazard indicator was identified by the current screening rules. Follow official warnings and emergency guidance.")
-    elif any(word in q for word in ("hot","heat","temperature")):
-        if "tomorrow" in q and len(weather["daily"])>1:
-            target=weather["daily"][1]
-            answer=f"Tomorrow ({target.get('date','date unavailable')}) is forecast to reach {target.get('high','unavailable')}°C, with a low of {target.get('low','unavailable')}°C. These are Open-Meteo model values, not a local station observation."
-        else:
-            peak=max(weather["daily"],key=lambda x:x.get("high") if x.get("high") is not None else float("-inf"),default={})
-            answer=f"The current modelled temperature is {weather['current']['temperature']}°C. The highest forecast daily temperature is {peak.get('high','unavailable')}°C on {peak.get('date','an unavailable date')}. These are Open-Meteo model values."
-    elif any(word in q for word in ("rain","wet","flood")):
-        forecast_days=weather["daily"]
-        if "weekend" in q:
-            weekend=[x for x in forecast_days if date.fromisoformat(x["date"]).weekday() in (5,6)]
-            forecast_days=weekend
-        day=max(forecast_days,key=lambda x:x.get("precipitation_sum") if x.get("precipitation_sum") is not None else float("-inf"),default={})
-        if "average" in q or "below normal" in q:
-            answer="A short-range forecast cannot explain whether rainfall is below its historical normal. Open Climate analytics to compare retrieved rainfall with the 1991–2020 ERA5 reference period."
-        elif day:
-            answer=f"The largest daily rainfall total in the requested forecast window is {day.get('precipitation_sum','unavailable')} mm on {day.get('date','an unavailable date')}, with a maximum rain probability of {day.get('precipitation_probability_max','unavailable')}%. Rainfall forecasts alone do not establish flood probability. Avoid crossing floodwater and follow official warnings."
-        else:
-            answer="The selected forecast window is not included in the available seven-day forecast. Rainfall forecasts alone do not establish flood probability; follow official warnings."
-    elif any(word in q for word in ("wind","gust")):
-        gust=max((x.get("wind_gusts_max") for x in weather["daily"] if x.get("wind_gusts_max") is not None),default="unavailable")
-        answer=f"The maximum daily gust in the seven-day forecast is {gust} km/h. Secure loose outdoor items if strong gusts are expected, and follow official warnings."
-    else:
-        active=[x for x in assessment["risks"] if x["level"] not in ("low","unavailable")]
-        answer="Current forecast-based precautions: " + (" ".join(a for x in active for a in x["precautions"]) or "No elevated weather hazard indicators were identified by the configured screening rules.")
-    return {"answer":answer,"source":weather["source"],"data_kind":weather["data_kind"],"location":weather["location"],"updated_at":weather["updated_at"],"engine_version":ENGINE_VERSION,"method":"transparent rule-based response; not a language model or emergency service"}
+    from .services.climate_advisor import answer_question
+    answer = await run_in_threadpool(answer_question, request.question, weather, assessment)
+    return {"answer":answer,"source":weather["source"],"data_kind":weather["data_kind"],"location":weather["location"],"updated_at":weather["updated_at"],"engine_version":ENGINE_VERSION,"method":"Gemini response grounded in Open-Meteo forecast"}
+
 
 
 @app.get("/api/v1/climate/preferences")
@@ -556,6 +545,7 @@ def create_reading(kind: str, reading: Reading, user: dict[str, Any] | None = De
                     row = con.execute(f"""INSERT INTO public.{table}(resident_id,previous_value,current_value,previous_date,reading_date)
                         VALUES(%s,%s,%s,%s,%s) RETURNING id::text,created_at""", (user["id"],reading.previous_reading,reading.current_reading,reading.previous_date,reading.current_date)).fetchone()
         except Exception as exc:
+            log.exception("Could not save %s reading to the shared database", kind)
             raise HTTPException(503,"Could not save the reading to the shared database.") from exc
         return {"id":row["id"],"kind":kind,"consumption":reading.current_reading-reading.previous_reading,"unit":"kL" if kind=="water" else "kWh","created_at":row["created_at"]}
     require_local_demo_mode()
