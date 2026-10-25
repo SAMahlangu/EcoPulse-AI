@@ -162,6 +162,35 @@ def test_resident_onboarding_saves_database_ids_and_validates_province(client: T
     assert saved["params"][2] == community_id
 
 
+def test_resident_onboarding_resolves_coordinates_when_municipality_has_no_boundary(client: TestClient, monkeypatch):
+    profile = {
+        "province_id": "00000000-0000-0000-0000-000000000001",
+        "province": "Gauteng",
+        "municipality_id": "00000000-0000-0000-0000-000000000002",
+        "municipality_name": "City of Tshwane Metropolitan Municipality",
+        "community_id": None,
+        "suburb": "Hatfield",
+        "latitude": None,
+        "longitude": None,
+        "notification_preferences": {},
+        "onboarding_completed_at": "2026-10-22T00:00:00Z",
+    }
+    monkeypatch.setattr(workspace, "_execute", lambda *args, **kwargs: profile)
+    async def resolve(name, province):
+        assert name == "City of Tshwane Metropolitan Municipality"
+        assert province == "Gauteng"
+        return {"latitude": -25.74486, "longitude": 28.18783}
+
+    monkeypatch.setattr(workspace.weather_service, "municipality_coordinates", resolve)
+    monkeypatch.setitem(app.dependency_overrides, current_user, lambda: {"id": "resident-id", "role": "resident"})
+
+    response = client.get("/api/v1/resident/onboarding")
+
+    assert response.status_code == 200
+    assert response.json()["profile"]["latitude"] == -25.74486
+    assert response.json()["profile"]["longitude"] == 28.18783
+
+
 def test_resident_cannot_save_municipality_under_wrong_province(client: TestClient, monkeypatch):
     monkeypatch.setattr(workspace, "_execute", lambda *args, **kwargs: None)
     monkeypatch.setitem(app.dependency_overrides, current_user, lambda: {"id": "resident-id", "role": "resident"})

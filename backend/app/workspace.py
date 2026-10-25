@@ -16,6 +16,7 @@ from uuid import UUID
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field, SecretStr
+from starlette.concurrency import run_in_threadpool
 
 from .services import network, weather_service
 from .services.supabase_keys import supabase_secret_headers, supabase_secret_key
@@ -414,15 +415,30 @@ def auth_me(user: dict[str, Any] = Depends(current_user)):
 
 
 @router.get("/resident/onboarding")
-def resident_onboarding(user: dict[str, Any] = Depends(require_roles("resident"))):
-    profile = _execute("""select coalesce(m.province_id,p.id)::text as province_id,profile.province,
+async def resident_onboarding(user: dict[str, Any] = Depends(require_roles("resident"))):
+    profile = await run_in_threadpool(_execute, """select coalesce(m.province_id,p.id)::text as province_id,coalesce(m.province,profile.province) as province,
         profile.municipality_id::text,m.name as municipality_name,profile.community_id::text,profile.suburb,
-        case when m.boundary is not null then extensions.st_y(extensions.st_centroid(m.boundary::extensions.geometry)) end as latitude,
-        case when m.boundary is not null then extensions.st_x(extensions.st_centroid(m.boundary::extensions.geometry)) end as longitude,
+        coalesce(
+            case when community.centroid is not null then extensions.st_y(community.centroid::extensions.geometry) end,
+            case when m.boundary is not null then extensions.st_y(extensions.st_centroid(m.boundary::extensions.geometry)) end
+        ) as latitude,
+        coalesce(
+            case when community.centroid is not null then extensions.st_x(community.centroid::extensions.geometry) end,
+            case when m.boundary is not null then extensions.st_x(extensions.st_centroid(m.boundary::extensions.geometry)) end
+        ) as longitude,
         profile.notification_preferences,profile.onboarding_completed_at
         from public.profiles profile left join public.municipalities m on m.id=profile.municipality_id
+        left join public.communities community on community.id=profile.community_id and community.municipality_id=m.id
         left join public.provinces p on lower(p.name)=lower(profile.province)
         where profile.id=%s""", (user["id"],), fetch="one")
+    if profile and profile.get("latitude") is None and profile.get("longitude") is None and profile.get("municipality_name") and profile.get("province"):
+        try:
+            coordinates = await weather_service.municipality_coordinates(profile["municipality_name"], profile["province"])
+        except (httpx.HTTPError, ValueError) as exc:
+            log.warning("Municipality coordinate lookup failed: %s", type(exc).__name__)
+        else:
+            if coordinates:
+                profile = {**profile, **coordinates}
     return {"profile": dict(profile) if profile else None}
 
 

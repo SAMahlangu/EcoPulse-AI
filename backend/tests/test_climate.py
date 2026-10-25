@@ -33,6 +33,35 @@ def test_historical_parser_preserves_daily_units(monkeypatch):
     assert "reanalysis" in result["data_kind"]
 
 
+def test_municipality_geocoding_matches_province_and_municipality(monkeypatch):
+    async def fake_search(name):
+        assert name in {"City of Tshwane Metropolitan Municipality", "Tshwane"}
+        return [
+            {"name": "Pretoria", "admin1": "Eastern Cape", "admin2": "Joe Gqabi District Municipality",
+             "admin3": "Elundini", "latitude": -30.78, "longitude": 28.59},
+            {"name": "Pretoria", "admin1": "Gauteng", "admin2": "City of Tshwane Metropolitan Municipality",
+             "admin3": "City of Tshwane", "latitude": -25.74486, "longitude": 28.18783},
+        ]
+
+    monkeypatch.setattr(weather_service, "search_locations", fake_search)
+    result = asyncio.run(weather_service.municipality_coordinates(
+        "City of Tshwane Metropolitan Municipality", "Gauteng",
+    ))
+
+    assert result == {"latitude": -25.74486, "longitude": 28.18783}
+
+
+def test_municipality_geocoding_does_not_return_other_municipality(monkeypatch):
+    async def fake_search(_name):
+        return [{"name": "Pretoria", "admin1": "Gauteng", "admin2": "City of Tshwane Metropolitan Municipality",
+                 "admin3": "City of Tshwane", "latitude": -25.74486, "longitude": 28.18783}]
+
+    monkeypatch.setattr(weather_service, "search_locations", fake_search)
+    result = asyncio.run(weather_service.municipality_coordinates("City of Johannesburg", "Gauteng"))
+
+    assert result is None
+
+
 def test_risk_engine_classifies_high_heat_and_heavy_rain():
     forecast={"updated_at":"2026-10-19T12:00","source":"Open-Meteo","data_kind":"forecast","current":{},"hourly":[],"daily":[{"date":"2026-10-20","high":41,"precipitation_sum":55,"wind_gusts_max":75}]}
     result=evaluate_forecast(forecast)

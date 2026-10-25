@@ -2,6 +2,8 @@
 
 The Climate Intelligence page is the current resident portal page in scope. It uses Open-Meteo for modelled forecast data, geocoding and historical ERA5 archive data. Forecast responses identify the source/data kind; historical records are daily archive values. The map displays the selected location's returned weather marker and coordinate-bearing community reports only. OpenStreetMap provides map tiles.
 
+The resident dashboard uses a selected community centroid or municipality-boundary centroid when available. If reference municipalities have no geometry, it resolves an approximate populated-place coordinate through Open-Meteo geocoding and requires both municipality and province matches before showing local weather. This is an approximate municipal-area forecast, not a street-level observation.
+
 ## Endpoints
 
 - `GET /api/v1/climate/current` — current modelled conditions.

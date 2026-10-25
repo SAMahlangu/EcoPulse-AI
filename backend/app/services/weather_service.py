@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import time
 from datetime import date
 from typing import Any
@@ -103,7 +104,41 @@ def _at(data: dict[str, Any], key: str, index: int):
 
 async def search_locations(name: str) -> list[dict[str, Any]]:
     raw=await _request(GEOCODING_URL,{"name":name,"count":10,"language":"en","format":"json","countryCode":"ZA"},86400)
-    return [{"name":x.get("name"),"admin1":x.get("admin1"),"admin2":x.get("admin2"),"country":x.get("country"),"latitude":x.get("latitude"),"longitude":x.get("longitude"),"timezone":x.get("timezone")} for x in raw.get("results",[]) if x.get("latitude") is not None and x.get("longitude") is not None]
+    return [{"name":x.get("name"),"admin1":x.get("admin1"),"admin2":x.get("admin2"),"admin3":x.get("admin3"),"country":x.get("country"),"latitude":x.get("latitude"),"longitude":x.get("longitude"),"timezone":x.get("timezone")} for x in raw.get("results",[]) if x.get("latitude") is not None and x.get("longitude") is not None]
+
+
+def _municipality_match_key(value: str) -> str:
+    normalized = value.casefold().strip()
+    normalized = re.sub(r"^(city|municipality) of\s+", "", normalized)
+    normalized = re.sub(r"\s+(metropolitan|district|local)?\s*municipality$", "", normalized)
+    normalized = re.sub(r"\s+metro$", "", normalized)
+    return re.sub(r"[^a-z0-9]", "", normalized)
+
+
+async def municipality_coordinates(name: str, province: str) -> dict[str, float] | None:
+    """Find an approximate populated-place coordinate within the selected municipality."""
+    search_terms = [name]
+    simplified = re.sub(r"^(city|municipality) of\s+", "", name, flags=re.IGNORECASE).strip()
+    simplified = re.sub(r"\s+(metropolitan|district|local)?\s*municipality$", "", simplified, flags=re.IGNORECASE).strip()
+    if simplified and simplified.casefold() != name.casefold():
+        search_terms.append(simplified)
+
+    target = _municipality_match_key(name)
+    for term in search_terms:
+        results = await search_locations(term)
+        matches = [
+            result for result in results
+            if result.get("admin1", "").casefold() == province.casefold()
+            and target
+            and any(
+                target == _municipality_match_key(str(result.get(field) or ""))
+                for field in ("admin2", "admin3")
+            )
+        ]
+        if matches:
+            selected = matches[0]
+            return {"latitude": float(selected["latitude"]), "longitude": float(selected["longitude"])}
+    return None
 
 
 async def reverse_location(latitude: float, longitude: float) -> dict[str, Any]:
