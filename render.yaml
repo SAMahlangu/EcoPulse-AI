@@ -1,6 +1,8 @@
 services:
   - type: web
     name: ecopulse-api
+    branch: main
+    autoDeployTrigger: commit
     runtime: python
     plan: free
     rootDir: backend
