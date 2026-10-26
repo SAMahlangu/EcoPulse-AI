@@ -34,6 +34,7 @@ from .email_notifications import router as email_notifications_router
 from .assistant import router as assistant_router
 from .water import router as water_router, validation_error_response as water_validation_error_response
 from .energy import router as energy_router, validation_error_response as energy_validation_error_response
+from .community_map import router as community_map_router
 from .security import database_url, local_demo_enabled, optional_current_user, postgres_connection
 from .security_middleware import RequestBodyLimitMiddleware, SecurityHeadersMiddleware
 
@@ -73,6 +74,7 @@ app.include_router(email_notifications_router)
 app.include_router(assistant_router)
 app.include_router(water_router)
 app.include_router(energy_router)
+app.include_router(community_map_router)
 origins = [x.strip() for x in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",") if x.strip()]
 # Development URLs may use either loopback hostname, including Vite's fallback
 # and preview ports. Production origins remain explicitly configured.
