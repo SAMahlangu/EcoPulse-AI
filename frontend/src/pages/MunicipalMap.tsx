@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { latLngBounds } from 'leaflet';
-import { CircleMarker, MapContainer, Popup, TileLayer, useMap } from 'react-leaflet';
+import { CircleMarker, MapContainer, Popup, useMap } from 'react-leaflet';
 import { getJson } from '../services/api';
+import EcoMoveTileLayer from '../components/ecomove/EcoMoveTileLayer';
 import 'leaflet/dist/leaflet.css';
 
 type Item=Record<string,any>;
@@ -30,7 +31,7 @@ export default function MunicipalMap({items}:{items:Item[]}){
 
   return <div className="municipal-incident-map">
     <MapContainer center={first??[-29,24]} zoom={first?11:5} scrollWheelZoom>
-      <TileLayer attribution="&copy; OpenStreetMap contributors" url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"/>
+      <EcoMoveTileLayer/>
       <FitReportedPoints points={points}/>
       {mappedItems.map(item=><CircleMarker key={item.id} center={[Number(item.latitude),Number(item.longitude)]} radius={8} eventHandlers={{click:()=>setActive(item.id)}} pathOptions={{color:item.priority==='urgent'||item.priority==='high'?'#c44d45':'#277849',fillOpacity:.78}}>
         <Popup>

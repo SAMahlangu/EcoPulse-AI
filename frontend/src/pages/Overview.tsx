@@ -1,9 +1,12 @@
 import { Link } from 'react-router-dom';
+import { CircleMarker, MapContainer, Popup } from 'react-leaflet';
+import 'leaflet/dist/leaflet.css';
 import { useAuth } from '../services/auth';
 import { useResidentArea } from '../services/residentArea';
 import { lazy, Suspense, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { CommunityServiceAlerts } from '../components/CommunityServiceAlerts';
+import StreetMapLayer from '../components/ecomove/EcoMoveTileLayer';
 import { Activity, ArrowRight, ArrowUpRight, CloudSun, Droplets, MapPin, Plus, ShieldCheck, Wind, Thermometer, RefreshCw, Sparkles, Zap, AlertTriangle, Map as MapIcon } from 'lucide-react';
 import { getJson, type Weather } from '../services/api';
 import './overview.css';
@@ -31,7 +34,7 @@ export function Overview() {
  const areaName = place?.municipality_name || (area.isPending ? 'Loading your area...' : 'Area unavailable');
  const hasCoordinates = place?.latitude != null && place?.longitude != null;
  const coords = hasCoordinates ? `latitude=${place!.latitude}&longitude=${place!.longitude}` : '';
- const mapUrl = hasCoordinates ? `https://www.openstreetmap.org/export/embed.html?bbox=${place!.longitude!-.11},${place!.latitude!-.09},${place!.longitude!+.11},${place!.latitude!+.09}&layer=mapnik&marker=${place!.latitude},${place!.longitude}` : '';
+ const mapCentre: [number,number] = hasCoordinates ? [place!.latitude!,place!.longitude!] : [-29,25];
 
  const weather=useQuery({enabled:hasCoordinates,queryKey:['weather',coords],queryFn:()=>getJson<Weather>(`/climate/current?${coords}`)});
  const risk=useQuery({enabled:hasCoordinates,queryKey:['climate-risk',coords],queryFn:()=>getJson<Risk>(`/climate/risks?${coords}`)});
@@ -81,7 +84,7 @@ export function Overview() {
    <div className="source-note"><ShieldCheck size={14}/> Municipal service notices appear above. Reports below are updates on your submitted issues.</div>
   </article>
   <article className="recommendation-card"><div className="rec-top"><span><Sparkles size={16}/></span><small>PREPAREDNESS TIPS · RULE BASED</small></div><h3>{tips[0]}</h3>{tips.slice(1).map(tip=><p key={tip}>{tip}</p>)}<a href="/climate">View local conditions <ArrowRight size={14}/></a><div className="rec-decoration"><MapIcon size={74}/></div></article></div>
-  <section className="panel overview-map"><div className="panel-header"><div><div className="panel-title"><span className="panel-icon alert-icon"><MapPin size={17}/></span><h3>Community map</h3></div><p>{areaName} overview · OpenStreetMap</p></div><a href="/map" className="quiet-button">Open map <ArrowUpRight size={14}/></a></div>{mapUrl ? <iframe title={`Map of ${areaName}`} loading="lazy" src={mapUrl}/> : <p className="map-caption">Map coordinates are not yet available for your selected municipality.</p>}<div className="map-caption">Map marker shows the selected area centre. Individual report pins require resident location coordinates.</div></section>
+  <section className="panel overview-map"><div className="panel-header"><div><div className="panel-title"><span className="panel-icon alert-icon"><MapPin size={17}/></span><h3>Community map</h3></div><p>{areaName} overview | OpenStreetMap</p></div><Link to="/resident/community-map" className="quiet-button">Open map <ArrowUpRight size={14}/></Link></div><div className="overview-map-canvas"><MapContainer center={mapCentre} zoom={hasCoordinates?11:5} scrollWheelZoom={false}><StreetMapLayer/>{hasCoordinates&&<CircleMarker center={mapCentre} radius={10} pathOptions={{color:'#398451',fillColor:'#78be43',fillOpacity:.9}}><Popup>{areaName} centre</Popup></CircleMarker>}</MapContainer></div><div className="map-caption">{hasCoordinates?'Map marker shows the selected area centre. Individual report pins require resident location coordinates.':'Select your municipality to centre this map. Individual report pins require saved location coordinates.'}</div></section>
   <footer className="page-footer"><span>EcoPulse AI <i>·</i> Building resilient communities</span><span>Weather: Open-Meteo. Household data: resident-submitted local records.</span></footer>
  </div>
 }
