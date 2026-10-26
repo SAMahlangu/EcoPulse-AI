@@ -158,6 +158,7 @@ alter table public.energy_prepaid_balances enable row level security;
 create policy "Active residents read their energy household" on public.energy_households for select to authenticated
  using(owner_id=auth.uid() and exists(select 1 from public.profiles p where p.id=auth.uid() and p.role='resident' and coalesce(p.account_status,'active')='active'));
 
+-- Household rows are private to their owner; API reads also filter by that owner.
 -- API-only writes preserve chronology, AI validation, alert deduplication and real/demo isolation.
 do $$
 declare table_name text;

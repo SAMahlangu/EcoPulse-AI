@@ -13,6 +13,8 @@ function UserQueryClient({ children }: { children: ReactNode }) {
 
 function IdentityQueryBoundary({ children }: { children: ReactNode }) {
   const { user } = useAuth();
+  // Each account gets a fresh in-memory cache; changing identity unmounts the
+  // previous client's private queries and mutations before the new account renders.
   return <UserQueryClient key={user?.id ?? 'anonymous'}>{children}</UserQueryClient>;
 }
 

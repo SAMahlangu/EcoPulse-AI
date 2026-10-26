@@ -51,6 +51,7 @@ def postgres_connection():
 
 
 def current_user(request: Request, credentials: HTTPAuthorizationCredentials | None = Depends(bearer)) -> dict[str, Any]:
+    # Resolve the actor from the verified session subject on every request; never trust an owner ID from a request body.
     token = request_access_token(request, credentials.credentials if credentials and credentials.scheme.lower() == 'bearer' else None)
     if not token:
         raise HTTPException(status_code=401, detail="Sign in is required.", headers={"WWW-Authenticate": "Bearer"})

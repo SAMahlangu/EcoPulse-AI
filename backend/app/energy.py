@@ -24,6 +24,7 @@ from .services.energy_intelligence import (analysis_evidence, build_dashboard, g
 from .services.energy_advisor import analyse_energy
 
 router = APIRouter(prefix="/api/v1/energy", tags=["Energy consumption intelligence"])
+# Every route requires a verified active resident; ownership always comes from this actor, not client-supplied IDs.
 resident = require_roles("resident")
 MAX_ROWS = 2000
 MAX_SIMULATION_DAYS = 90
@@ -177,7 +178,7 @@ HOUSEHOLD_COLUMNS = "h.id::text,h.owner_id::text,h.name,h.household_size,h.daily
 
 
 def _household(connection, user, *, lock=False, provision=True):
-    """The verified actor owns the only household used by every actual-data query."""
+    """Resolve the authenticated resident's household; request payloads cannot select another household."""
     sql = f"""select {HOUSEHOLD_COLUMNS} from public.energy_households h
         join public.profiles p on p.id=h.owner_id
         where h.owner_id=%s and p.role='resident' and coalesce(p.account_status,'active')='active'"""
@@ -347,6 +348,7 @@ def _persist_reports(connection, household, dashboard):
 
 
 def _session(connection, session_id, user, *, lock=False):
+    # Simulation IDs are references, not authorization: require both the ID and verified owner to match.
     row = connection.execute("""select s.id::text,s.user_id::text,s.scenario,s.payload,s.created_at,s.updated_at
         from public.energy_simulation_sessions s join public.profiles p on p.id=s.user_id
         where s.id=%s and s.user_id=%s and p.role='resident' and coalesce(p.account_status,'active')='active'"""
@@ -447,6 +449,7 @@ def _fingerprint(evidence, explanation):
 
 
 def _limit_analysis(user_id):
+    # This in-process quota is keyed per resident so one account cannot consume another account's allowance.
     now = clock.monotonic()
     with _analysis_attempts_lock:
         attempts = _analysis_attempts[user_id]

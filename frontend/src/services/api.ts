@@ -81,6 +81,7 @@ export async function apiFetch(path: string, init: RequestInit = {}): Promise<Re
     if (!csrfToken) await bootstrapSession();
     if (csrfToken) headers.set('X-CSRF-Token', csrfToken);
   }
+  // Account-specific API responses must not be reused from the browser's HTTP cache.
   const request = () => fetch(`${API}${path}`, {
     ...init, method, headers, credentials: 'include', cache: 'no-store',
   });
