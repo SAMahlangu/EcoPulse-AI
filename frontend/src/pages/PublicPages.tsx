@@ -48,7 +48,7 @@ function ContactSection() {
 
 type AuthMode='login'|'register'|'forgot-password'|'reset-password';
 export function AuthPage({mode}:{mode:AuthMode}) {
-  const auth=useAuth();const navigate=useNavigate();const [busy,setBusy]=useState(false);const [message,setMessage]=useState<string|null>(null);
+  const auth=useAuth();const navigate=useNavigate();const confirmation=typeof window!=='undefined'?new URLSearchParams(window.location.search).get('email_confirmation'):null;const confirmationMessage=confirmation==='confirmed'?'Your email is confirmed. Sign in with your email address and password.':confirmation==='failed'?'This confirmation link could not be used. Request a new link or sign in if you already confirmed your email.':null;const [busy,setBusy]=useState(false);const [message,setMessage]=useState<string|null>(confirmationMessage);
   if(auth.user&&mode!=='reset-password') return <RoleRedirect/>;
   const title={login:'Welcome back',register:'Create your resident account','forgot-password':'Reset your password','reset-password':'Choose a new password'}[mode];
   async function submit(event:FormEvent<HTMLFormElement>){event.preventDefault();setBusy(true);setMessage(null);const form=new FormData(event.currentTarget);try{

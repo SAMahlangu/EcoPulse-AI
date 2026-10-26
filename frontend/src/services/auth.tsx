@@ -7,7 +7,7 @@ const SESSION_KEY = 'ecopulse.auth.session';
 export type Role = 'resident' | 'municipal' | 'admin';
 export type User = { id: string; email: string; full_name: string | null; role: Role; municipality_id: string | null; onboarding_completed_at?: string | null };
 type Session = { access_token: string; refresh_token: string; expires_at: number; user: { id: string; email: string } };
-type AuthValue = { user: User | null; loading: boolean; configured: boolean; hasSession: boolean; error: string | null; login(email: string, password: string): Promise<User>; register(name: string, email: string, password: string): Promise<boolean>; requestPasswordReset(email: string): Promise<void>; updatePassword(password: string): Promise<void>; logout(): Promise<void>; refreshUser(): Promise<User>; accessToken(): string | null };
+type AuthValue = { user: User | null; loading: boolean; configured: boolean; hasSession: boolean; error: string | null; login(email: string, password: string): Promise<User>; register(name: string, email: string, password: string): Promise<boolean>; requestPasswordReset(email: string): Promise<void>; updatePassword(password: string): Promise<void>; logout(tokenOverride?: string): Promise<void>; refreshUser(): Promise<User>; accessToken(): string | null };
 const AuthContext = createContext<AuthValue | null>(null);
 const apiBase = import.meta.env.VITE_API_URL ?? 'http://localhost:8000/api/v1';
 
@@ -120,7 +120,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!response.ok) throw new AuthRequestError(result.detail ?? 'Registration failed.', response.status);
       return true;
     }
-    const result = await authRequest('signup', { email, password, data: { full_name: name } });
+    // Return verification links to this running app; its callback then opens the sign-in page.
+    const result = await authRequest('signup', { email, password, data: { full_name: name }, redirectTo: window.location.origin });
     return Boolean(result.access_token);
   }, []);
   const requestPasswordReset = useCallback(async (email: string) => { await authRequest('recover', { email, redirectTo: `${window.location.origin}/reset-password` }); }, []);
@@ -131,10 +132,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const response = await fetch(`${apiBase}/auth/gateway/user`, { method: 'PUT', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) });
     if (!response.ok) throw new Error('Could not update your password. Request a fresh reset link and try again.');
   }, [currentSession]);
-  const logout = useCallback(async () => {
-    const token = currentSession?.access_token;
-    if (token && SUPABASE_URL && SUPABASE_KEY) await fetch(`${apiBase}/auth/gateway/logout`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } }).catch(() => undefined);
+  const logout = useCallback(async (tokenOverride?: string) => {
+    const token = tokenOverride ?? currentSession?.access_token;
     saveSession(null); setCurrentSession(null); setUser(null);
+    if (token && SUPABASE_URL && SUPABASE_KEY) await fetch(`${apiBase}/auth/gateway/logout`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } }).catch(() => undefined);
   }, [currentSession]);
 
   const refreshUser = useCallback(async () => {

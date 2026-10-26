@@ -43,6 +43,7 @@ class PublicProfile(AuthBody):
 
 class Signup(PasswordLogin):
     data: PublicProfile
+    redirectTo: str|None=Field(default=None,max_length=2048)
 
 
 class Recover(AuthBody):
@@ -52,6 +53,25 @@ class Recover(AuthBody):
 
 class ChangePassword(AuthBody):
     password: SecretStr=Field(min_length=8,max_length=128)
+
+
+def validated_redirect_to(value: str) -> str:
+    """Keep email links on configured app origins and approved local dev ports."""
+    try:
+        parsed=urlsplit(value)
+        port=parsed.port
+    except ValueError:
+        raise HTTPException(422,'Use a configured EcoPulse website address for this email link.') from None
+    if parsed.scheme not in {'http','https'} or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
+        raise HTTPException(422,'Use a configured EcoPulse website address for this email link.')
+    origin=f'{parsed.scheme}://{parsed.netloc}'
+    origins={item.strip() for item in os.getenv('CORS_ORIGINS','http://localhost:5173').split(',')}
+    local_port=port==3000 or port==4173 or (port is not None and 5173<=port<=5179)
+    loopback=parsed.scheme=='http' and parsed.hostname in {'localhost','127.0.0.1','::1'} and local_port
+    dev_origin_configured=bool(origins & {'http://localhost:5173','http://127.0.0.1:5173'})
+    if origin not in origins and not (loopback and dev_origin_configured):
+        raise HTTPException(422,'Use a configured EcoPulse website address for this email link.')
+    return value
 
 
 def limit_attempts(request:Request):
@@ -96,6 +116,8 @@ async def auth_gateway(action:Literal['token','signup','recover','logout','user'
         elif action=='signup':
             model=Signup.model_validate(raw)
             body={'email':model.email,'password':model.password.get_secret_value(),'data':model.data.model_dump()}
+            if model.redirectTo:
+                params['redirect_to']=validated_redirect_to(model.redirectTo)
         elif action=='recover':
             model=Recover.model_validate(raw)
             body={'email':model.email}

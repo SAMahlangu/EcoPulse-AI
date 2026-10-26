@@ -79,9 +79,9 @@ app.include_router(energy_router)
 app.include_router(community_map_router)
 app.include_router(community_resources_router)
 origins = [x.strip() for x in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",") if x.strip()]
-# Development URLs may use either loopback hostname, including Vite's fallback
-# and preview ports. Production origins remain explicitly configured.
-local_origin_regex = r"http://(?:localhost|127\.0\.0\.1|\[::1\]):(?:517[3-9]|4173)" if any(
+# Development URLs may use either loopback hostname, including the app's local,
+# Vite fallback, and preview ports. Production origins remain explicitly configured.
+local_origin_regex = r"http://(?:localhost|127\.0\.0\.1|\[::1\]):(?:3000|4173|517[3-9])" if any(
     origin in {"http://localhost:5173", "http://127.0.0.1:5173"} for origin in origins
 ) else None
 
