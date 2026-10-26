@@ -7,10 +7,11 @@ import time
 from typing import Any
 
 import httpx
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwk, jwt
 from .services import network
+from .browser_sessions import request_access_token
 
 log = logging.getLogger(__name__)
 bearer = HTTPBearer(auto_error=False)
@@ -49,15 +50,16 @@ def postgres_connection():
         raise HTTPException(status_code=503, detail="Supabase database is currently unavailable.") from exc
 
 
-def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)) -> dict[str, Any]:
-    if not credentials or credentials.scheme.lower() != "bearer":
+def current_user(request: Request, credentials: HTTPAuthorizationCredentials | None = Depends(bearer)) -> dict[str, Any]:
+    token = request_access_token(request, credentials.credentials if credentials and credentials.scheme.lower() == 'bearer' else None)
+    if not token:
         raise HTTPException(status_code=401, detail="Sign in is required.", headers={"WWW-Authenticate": "Bearer"})
     secret = os.getenv("SUPABASE_JWT_SECRET", "").strip()
     supabase_url = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
     if not supabase_url:
         raise HTTPException(status_code=503, detail="Supabase authentication verification is not configured.")
     try:
-        header = jwt.get_unverified_header(credentials.credentials)
+        header = jwt.get_unverified_header(token)
         algorithm = header.get("alg")
         if algorithm == "HS256" and secret:
             verification_key: Any = secret
@@ -83,7 +85,7 @@ def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bear
             verification_key = jwk.construct(jwk_value, algorithm=algorithm)
         else:
             raise JWTError("Unsupported signing algorithm")
-        claims = jwt.decode(credentials.credentials, verification_key, algorithms=[algorithm], audience="authenticated", issuer=f"{supabase_url}/auth/v1")
+        claims = jwt.decode(token, verification_key, algorithms=[algorithm], audience="authenticated", issuer=f"{supabase_url}/auth/v1")
     except JWTError as exc:
         raise HTTPException(status_code=401, detail="The session is invalid or expired.", headers={"WWW-Authenticate": "Bearer"}) from exc
     except (httpx.HTTPError, ValueError) as exc:
@@ -127,21 +129,35 @@ def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bear
         municipalities = [item["municipality_id"] for item in memberships]
         if not municipalities:
             raise HTTPException(status_code=403, detail="No active municipal membership is assigned to this account.")
+    assurance = claims.get('aal', 'aal1')
+    mfa_required = role in {'municipal', 'admin'} and assurance != 'aal2'
+    # Even routes depending directly on current_user (notifications, for example)
+    # must not expose privileged data until the signed session has passed MFA.
+    mfa_exempt_paths = {
+        '/api/v1/auth/session', '/api/v1/auth/me', '/api/v1/auth/mfa/factors',
+        '/api/v1/auth/mfa/enroll', '/api/v1/auth/mfa/verify',
+    }
+    is_auth_gateway = request.url.path.startswith('/api/v1/auth/gateway/')
+    if mfa_required and request.url.path not in mfa_exempt_paths and not is_auth_gateway:
+        raise HTTPException(403, detail={'code': 'mfa_required', 'message': 'Verify your authenticator code to open this workspace.'})
     return {"id": profile_id, "email": claims.get("email", ""), "full_name": full_name, "role": role,
             "municipality_id": municipality_id, "municipality_ids": municipalities,
             "province": row["province"], "suburb": row["suburb"], "community_id": row["community_id"],
-            "onboarding_completed_at": row["onboarding_completed_at"], "notification_preferences": row["notification_preferences"]}
+            "onboarding_completed_at": row["onboarding_completed_at"], "notification_preferences": row["notification_preferences"],
+            'aal': assurance, 'mfa_required': mfa_required, 'session_expires_at': claims.get('exp')}
 
 
-def optional_current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)) -> dict[str, Any] | None:
-    if credentials is None:
+def optional_current_user(request: Request, credentials: HTTPAuthorizationCredentials | None = Depends(bearer)) -> dict[str, Any] | None:
+    if credentials is None and request_access_token(request) is None:
         return None
-    return current_user(credentials)
+    return current_user(request, credentials)
 
 
 def require_roles(*roles: str):
     def dependency(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
         if user["role"] not in roles:
             raise HTTPException(status_code=403, detail="You are not authorised to access this resource.")
+        if user.get('mfa_required'):
+            raise HTTPException(403, detail={'code': 'mfa_required', 'message': 'Verify your authenticator code to open this workspace.'})
         return user
     return dependency

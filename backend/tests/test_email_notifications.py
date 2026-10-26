@@ -93,3 +93,39 @@ def test_smtp_alert_uses_working_gmail_login(delivery, monkeypatch, use_ssl):
     if not use_ssl:
         server.starttls.assert_called_once()
     post.assert_not_called()
+
+
+@pytest.mark.parametrize("code,expected", [(200,"accepted"),(403,"failed"),(429,"retry"),(503,"retry")])
+def test_provider_result_distinguishes_acceptance_and_retry(delivery, code, expected):
+    _, post = delivery
+    post.return_value = httpx.Response(code,json={"id":"provider-id"},headers={"Retry-After":"120"})
+    result = emails.send_user_notification_email("user-id","Subject","Body","incident_updates",idempotency_key="notification:test-job")
+    assert result.status == expected
+    assert post.call_args.kwargs["headers"]["Idempotency-Key"] == "notification:test-job"
+    if expected == "accepted":
+        assert result.provider_message_id == "provider-id"
+    elif expected == "retry":
+        assert result.retry_after_seconds == 120
+
+
+def test_suspended_or_missing_recipient_is_skipped(delivery, monkeypatch):
+    _, post = delivery
+    @contextmanager
+    def database():
+        con = Mock()
+        con.execute.return_value.fetchone.return_value = None
+        yield con
+    monkeypatch.setattr(emails,"postgres_connection",database)
+    result = emails.send_user_notification_email("user-id","Subject","Body","incident_updates")
+    assert result.status == "skipped"
+    assert result.error_code == "recipient_unavailable"
+    post.assert_not_called()
+
+
+def test_preferences_are_rechecked_on_retry(delivery):
+    recipient, post = delivery
+    post.side_effect = httpx.TimeoutException("private provider text")
+    assert emails.send_user_notification_email("user-id","Subject","Body","incident_updates").status == "retry"
+    recipient["notification_preferences"]["incident_updates"] = False
+    assert emails.send_user_notification_email("user-id","Subject","Body","incident_updates").status == "skipped"
+    assert post.call_count == 1

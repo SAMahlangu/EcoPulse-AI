@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field, SecretStr
 from .services import network, weather_service
 from .services.supabase_keys import supabase_secret_headers, supabase_secret_key
 from .security import current_user, postgres_connection, require_roles
-from .email_notifications import send_user_notification_email
+from .services.notification_outbox import enqueue_notification
 
 router = APIRouter(prefix="/api/v1")
 log = logging.getLogger(__name__)
@@ -410,7 +410,7 @@ async def register_local_resident(form: LocalResidentRegistration, request: Requ
 
 @router.get("/auth/me")
 def auth_me(user: dict[str, Any] = Depends(current_user)):
-    return {key: user.get(key) for key in ("id", "email", "full_name", "role", "municipality_id", "municipality_ids", "province", "suburb", "community_id", "onboarding_completed_at", "notification_preferences")}
+    return {key: user.get(key) for key in ("id", "email", "full_name", "role", "municipality_id", "municipality_ids", "province", "suburb", "community_id", "onboarding_completed_at", "notification_preferences", "aal", "mfa_required", "session_expires_at")}
 
 
 @router.get("/resident/onboarding")
@@ -557,11 +557,7 @@ def municipal_incidents(q: str | None = Query(None, max_length=120), category: s
                         start_date: date | None = None, end_date: date | None = None,
                         limit: int = Query(25, ge=1, le=100), offset: int = Query(0, ge=0),
                         user: dict[str, Any] = Depends(require_roles("municipal"))):
-    rows = _municipal_execute(user, """
-      select i.id::text, i.public_reference, i.category, i.title, i.description, i.location::text as location,
-        i.status, i.priority, i.created_at, i.updated_at, i.resolution_note,
-        i.reporter_id::text, i.municipality_id::text,i.department_id::text,(select department_name from public.municipal_departments d where d.id=i.department_id) as department_name
-      from public.incidents i
+    filters = """
       where i.municipality_id = any(%s::uuid[])
         and (%s::text is null or i.category=%s)
         and (%s::text is null or i.status=%s)
@@ -569,10 +565,20 @@ def municipal_incidents(q: str | None = Query(None, max_length=120), category: s
         and (%s::date is null or i.created_at::date >= %s)
         and (%s::date is null or i.created_at::date <= %s)
         and (%s::text is null or i.title ilike %s or i.description ilike %s or i.location::text ilike %s)
-      order by i.created_at desc limit %s offset %s
-    """, (_scope(user), category, category, status, status, priority, priority, start_date, start_date, end_date, end_date,
-          q, f"%{q}%" if q else None, f"%{q}%" if q else None, f"%{q}%" if q else None, limit, offset))
-    return {"items": [dict(row) for row in rows], "limit": limit, "offset": offset}
+    """
+    parameters = (_scope(user), category, category, status, status, priority, priority,
+                  start_date, start_date, end_date, end_date, q,
+                  f"%{q}%" if q else None, f"%{q}%" if q else None, f"%{q}%" if q else None)
+    total = _municipal_execute(user, "select count(*) as total from public.incidents i " + filters,
+                               parameters, fetch="one")["total"]
+    rows = _municipal_execute(user, """
+      select i.id::text, i.public_reference, i.category, i.title, i.description, i.location::text as location,
+        i.status, i.priority, i.created_at, i.updated_at, i.resolution_note,
+        i.response_due_at,i.repair_due_at,i.first_response_at,i.resolved_at,i.reopen_count,
+        i.reporter_id::text, i.municipality_id::text,i.department_id::text,(select department_name from public.municipal_departments d where d.id=i.department_id) as department_name
+      from public.incidents i
+    """ + filters + " order by i.created_at desc,i.id desc limit %s offset %s", parameters + (limit, offset))
+    return {"items": [dict(row) for row in rows], "total": total, "limit": limit, "offset": offset}
 
 
 @router.get("/municipal/incidents/{incident_id}")
@@ -580,6 +586,7 @@ def municipal_incident(incident_id: str, user: dict[str, Any] = Depends(require_
     row = _municipal_execute(user, """
       select i.id::text, i.public_reference, i.category, i.title, i.description, i.location::text as location,
         i.status, i.priority, i.created_at, i.updated_at, i.resolution_note,
+        i.response_due_at,i.repair_due_at,i.first_response_at,i.resolved_at,i.reopen_count,
         i.reporter_id::text, i.municipality_id::text,i.department_id::text,(select department_name from public.municipal_departments d where d.id=i.department_id) as department_name,i.ai_suggested_category,i.resident_confirmed_category,i.ai_model_name,i.ai_model_version
       from public.incidents i where i.id=%s and i.municipality_id = any(%s::uuid[])
     """, (incident_id, _scope(user)), fetch="one")
@@ -616,25 +623,28 @@ def update_incident_status(incident_id: str, update: StatusUpdate,
                 raise HTTPException(status_code=409, detail=f"Status cannot move from {current['status']} to {update.status}.")
             row = connection.execute("""
               update public.incidents set status=%s, resolution_note=coalesce(%s,resolution_note), updated_at=now(),
+                first_response_at=coalesce(first_response_at,now()),
+                resolved_at=case when %s='resolved' then now() else resolved_at end,
                 municipal_verified_category=case when %s='verified' then category else municipal_verified_category end,
                 municipal_verified_by=case when %s='verified' then %s else municipal_verified_by end,
                 municipal_verified_at=case when %s='verified' then now() else municipal_verified_at end
               where id=%s and municipality_id=any(%s::uuid[])
               returning id::text, reporter_id::text, title, status
-            """, (update.status, update.resolution_note, update.status, update.status, user["id"], update.status, incident_id, _scope(user))).fetchone()
+            """, (update.status, update.resolution_note, update.status, update.status, update.status, user["id"], update.status, incident_id, _scope(user))).fetchone()
             if not row:
                 raise HTTPException(status_code=404, detail="Incident not found in your authorised municipality.")
-            connection.execute("insert into public.incident_updates(incident_id,author_id,status,message,official,internal) values(%s,%s,%s,%s,true,false)",
-                               (incident_id, user["id"], update.status, update.message))
+            event = connection.execute("insert into public.incident_updates(incident_id,author_id,status,message,official,internal) values(%s,%s,%s,%s,true,false) returning id::text",
+                                       (incident_id, user["id"], update.status, update.message)).fetchone()
             connection.execute("insert into public.notifications(resident_id,title,body,category,official) values(%s,%s,%s,'incident_update',true)",
                                (row["reporter_id"], f"Report update: {row['title']}", update.message))
             connection.execute("insert into public.admin_audit_logs(actor_id,action,target_type,target_id,details) values(%s,'incident_status_changed','incident',%s,%s::jsonb)",
                                (user["id"], incident_id, '{"status":"' + update.status + '"}'))
+            enqueue_notification(connection, row["reporter_id"], f"Report update: {row['title']}", update.message,
+                                 "incident_updates", event_key=f"incident-update:{event['id']}")
     except HTTPException:
         raise
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Could not update the incident. Confirm migration 003 is applied.") from exc
-    background_tasks.add_task(send_user_notification_email, row["reporter_id"], f"Report update: {row['title']}", update.message, "incident_updates")
     return {"id": row["id"], "status": row["status"], "updated_at": datetime.now(timezone.utc).isoformat()}
 
 
@@ -654,12 +664,13 @@ def add_incident_note(incident_id: str, note: IncidentNote,
             row = connection.execute("insert into public.incident_updates(incident_id,author_id,message,official,internal) values(%s,%s,%s,true,%s) returning id::text,created_at", (incident_id,user["id"],note.message,note.internal)).fetchone()
             if not note.internal:
                 connection.execute("insert into public.notifications(resident_id,title,body,category,official) values(%s,%s,%s,'incident_update',true)",(reporter["reporter_id"],f"Report update: {reporter['title']}",note.message))
+                connection.execute("update public.incidents set first_response_at=coalesce(first_response_at,now()) where id=%s", (incident_id,))
+                enqueue_notification(connection, reporter["reporter_id"], f"Report update: {reporter['title']}",
+                                     note.message, "incident_updates", event_key=f"incident-update:{row['id']}")
     except HTTPException:
         raise
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Could not save the incident note.") from exc
-    if not note.internal:
-        background_tasks.add_task(send_user_notification_email, reporter["reporter_id"], f"Report update: {reporter['title']}", note.message, "incident_updates")
     return {"id": row["id"], "created_at": row["created_at"]}
 
 

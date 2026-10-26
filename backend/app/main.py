@@ -33,7 +33,10 @@ from .service_alerts import router as service_alerts_router
 from .assistant import router as assistant_router
 from .water import router as water_router, validation_error_response as water_validation_error_response
 from .energy import router as energy_router, validation_error_response as energy_validation_error_response
-from .security import database_url, local_demo_enabled, optional_current_user, postgres_connection
+from .incident_followup import router as incident_followup_router
+from .notification_delivery import router as notification_delivery_router
+from .services.notification_worker import notification_worker
+from .security import database_url, local_demo_enabled, optional_current_user, postgres_connection, require_roles
 from .security_middleware import RequestBodyLimitMiddleware, SecurityHeadersMiddleware
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -60,7 +63,13 @@ async def lifespan(_: FastAPI):
         if "public_reference" not in columns: con.execute("ALTER TABLE incidents ADD COLUMN public_reference TEXT")
         if "submission_key" not in columns: con.execute("ALTER TABLE incidents ADD COLUMN submission_key TEXT")
         con.execute("""CREATE TABLE IF NOT EXISTS readings(id INTEGER PRIMARY KEY, kind TEXT NOT NULL, previous REAL NOT NULL, current REAL NOT NULL, previous_date TEXT NOT NULL, current_date TEXT NOT NULL, household_size INTEGER, created_at TEXT NOT NULL)""")
-    yield
+    stop_worker = asyncio.Event()
+    worker_task = asyncio.create_task(notification_worker(stop_worker))
+    try:
+        yield
+    finally:
+        stop_worker.set()
+        await worker_task
 
 app = FastAPI(title="EcoPulse AI Platform API", version="0.2.0", description="Shared resident, municipal, and platform services. Weather data is sourced from Open-Meteo.", lifespan=lifespan)
 app.include_router(workspace_router)
@@ -71,6 +80,8 @@ app.include_router(service_alerts_router)
 app.include_router(assistant_router)
 app.include_router(water_router)
 app.include_router(energy_router)
+app.include_router(incident_followup_router)
+app.include_router(notification_delivery_router)
 origins = [x.strip() for x in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",") if x.strip()]
 # Development URLs may use either loopback hostname, including Vite's fallback
 # and preview ports. Production origins remain explicitly configured.
@@ -106,7 +117,7 @@ async def limit_incident_upload_body(request: Request, call_next):
 # headers to early responses (for example, a 413 caused by a missing or large
 # Content-Length). Otherwise browsers mask the useful response as a CORS error.
 app.add_middleware(RequestBodyLimitMiddleware)
-app.add_middleware(CORSMiddleware, allow_origins=origins, allow_origin_regex=local_origin_regex, allow_credentials=True, allow_methods=["GET", "POST", "PATCH", "PUT", "OPTIONS"], allow_headers=["Authorization", "Content-Type"])
+app.add_middleware(CORSMiddleware, allow_origins=origins, allow_origin_regex=local_origin_regex, allow_credentials=True, allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"], allow_headers=["Authorization", "Content-Type", "X-CSRF-Token"])
 
 app.add_middleware(SecurityHeadersMiddleware)
 
@@ -298,6 +309,32 @@ async def submit_incident_with_media(request: Request, user: dict[str, Any] | No
 
 @app.get("/api/v1/health")
 def health(): return {"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()}
+
+
+@app.get("/api/v1/health/ready")
+def readiness():
+    if not database_url():
+        return JSONResponse(status_code=503, content={"status": "not_ready", "reason": "shared database is not configured"})
+    try:
+        with postgres_connection() as con:
+            tables = con.execute("""select to_regclass('public.incidents') as incidents,
+                to_regclass('public.notification_outbox') as notification_outbox""").fetchone()
+            columns = con.execute("""select column_name from information_schema.columns
+                where table_schema='public' and table_name='incidents'
+                  and column_name in ('response_due_at','repair_due_at','first_response_at','resolved_at','reopen_count')""").fetchall()
+    except Exception as exc:
+        log.warning("Readiness check failed (%s)", type(exc).__name__)
+        return JSONResponse(status_code=503, content={"status": "not_ready", "reason": "shared database check failed"})
+    missing = []
+    if not tables or not tables["incidents"]:
+        missing.append("incident_schema")
+    if not tables or not tables["notification_outbox"]:
+        missing.append("notification_outbox")
+    if len(columns) != 5:
+        missing.append("incident_service_deadlines")
+    if missing:
+        return JSONResponse(status_code=503, content={"status": "not_ready", "missing": missing})
+    return {"status": "ready", "database": "connected", "migrations": {"notification_outbox": True, "incident_service_deadlines": True}}
 
 async def fetch_weather(latitude: float, longitude: float) -> dict[str, Any]:
     try:
@@ -518,6 +555,10 @@ class AdvisorQuestion(BaseModel):
     longitude: float=Field(default=28.2293,ge=-180,le=180)
 
 
+class ClimatePreferencesUpdate(BaseModel):
+    climate_alerts: bool
+
+
 @app.post("/api/v1/climate/advisor")
 async def climate_advisor(request: AdvisorQuestion):
     weather=await fetch_weather(request.latitude,request.longitude)
@@ -529,13 +570,27 @@ async def climate_advisor(request: AdvisorQuestion):
 
 
 @app.get("/api/v1/climate/preferences")
-def climate_preferences():
-    return {"available":False,"preferences":None,"reason":"Preferences require authenticated resident storage; Supabase authentication is not configured."}
+def climate_preferences(user: dict[str, Any] = Depends(require_roles("resident"))):
+    preferences = user.get("notification_preferences") or {}
+    return {"climate_alerts": bool(preferences.get("climate_alerts", True))}
 
 
 @app.put("/api/v1/climate/preferences")
-def update_climate_preferences():
-    raise HTTPException(501,"Climate preferences require authenticated resident storage, which is not configured.")
+def update_climate_preferences(form: ClimatePreferencesUpdate, user: dict[str, Any] = Depends(require_roles("resident"))):
+    if not database_url():
+        raise HTTPException(503, "Climate notification preferences require the shared account database.")
+    try:
+        with postgres_connection() as con:
+            row = con.execute("""update public.profiles set
+                notification_preferences=coalesce(notification_preferences,'{}'::jsonb) || jsonb_build_object('climate_alerts',%s),
+                updated_at=now() where id=%s returning notification_preferences""",
+                (form.climate_alerts, user["id"])).fetchone()
+    except Exception as exc:
+        log.warning("Climate preference update failed (%s)", type(exc).__name__)
+        raise HTTPException(503, "Could not save climate notification preferences.") from exc
+    if not row:
+        raise HTTPException(404, "Resident profile not found.")
+    return {"climate_alerts": bool((row["notification_preferences"] or {}).get("climate_alerts", True))}
 
 @app.post("/api/v1/{kind}/readings")
 def create_reading(kind: str, reading: Reading, user: dict[str, Any] | None = Depends(optional_current_user)):
@@ -687,15 +742,17 @@ def dashboard(user: dict[str, Any] | None = Depends(optional_current_user)):
         if user["role"] != "resident": raise HTTPException(403,"This dashboard is only available to residents.")
         try:
             with postgres_connection() as con:
-                active_incidents=con.execute("select count(*) as count from public.incidents where reporter_id=%s and status in ('submitted','acknowledged','under_review','verified','in_progress')",(user["id"],)).fetchone()["count"]
+                active_incidents=con.execute("select count(*) as count from public.incidents where reporter_id=%s and status in ('submitted','acknowledged','under_review','verified','assigned','in_progress')",(user["id"],)).fetchone()["count"]
                 recent=con.execute("select id::text,category,title,location_text as location,created_at,status,(select name from public.municipalities m where m.id=municipality_id) as municipality_name,(select department_name from public.municipal_departments d where d.id=department_id) as department_name from public.incidents where reporter_id=%s order by created_at desc limit 5",(user["id"],)).fetchall()
-                water=con.execute("select coalesce(sum(w.current_value-w.previous_value),0) as total,count(*) as count from public.water_readings w where w.resident_id=%s and to_char(w.reading_date,'YYYY-MM')=%s",(user["id"],month)).fetchone()
-                energy=con.execute("select coalesce(sum(e.current_value-e.previous_value),0) as total,count(*) as count from public.energy_readings e where e.resident_id=%s and to_char(e.reading_date,'YYYY-MM')=%s",(user["id"],month)).fetchone()
+                from .services.resident_summary import consumption_summary
+                consumption = consumption_summary(con, user)
+        except HTTPException:
+            raise
         except Exception as exc:
             raise HTTPException(503,"Could not load your dashboard from the shared database.") from exc
         return {"source":"your Supabase resident profile and submitted records","active_incidents":{"value":active_incidents,"updated_at":datetime.now(timezone.utc).isoformat()},
-          "water":{"month":month,"consumption_kilolitres":round(water["total"],3) if water["count"] else None,"reading_count":water["count"],"estimated_cost":None},
-          "energy":{"month":month,"consumption_kwh":round(energy["total"],2) if energy["count"] else None,"reading_count":energy["count"],"estimated_cost":None},
+          "water":consumption["water"],
+          "energy":consumption["energy"],
           "recent_incidents":[dict(row) for row in recent],"official_alerts":[],"timestamp":datetime.now(timezone.utc).isoformat()}
     require_local_demo_mode()
     with db() as con:

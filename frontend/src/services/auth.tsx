@@ -1,160 +1,160 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL?.replace(/\/$/, '');
-const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY;
-const SESSION_KEY = 'ecopulse.auth.session';
+import { authGateway, getJson, initializeBrowserSession, updateBrowserSession } from './api';
 
 export type Role = 'resident' | 'municipal' | 'admin';
-export type User = { id: string; email: string; full_name: string | null; role: Role; municipality_id: string | null; onboarding_completed_at?: string | null };
-type Session = { access_token: string; refresh_token: string; expires_at: number; user: { id: string; email: string } };
-type AuthValue = { user: User | null; loading: boolean; configured: boolean; hasSession: boolean; error: string | null; login(email: string, password: string): Promise<User>; register(name: string, email: string, password: string): Promise<boolean>; requestPasswordReset(email: string): Promise<void>; updatePassword(password: string): Promise<void>; logout(): Promise<void>; refreshUser(): Promise<User>; accessToken(): string | null };
+export type User = { id: string; email: string; full_name: string | null; role: Role; municipality_id: string | null; onboarding_completed_at?: string | null; aal?: string; mfa_required?: boolean; session_expires_at?: number | null };
+type AuthValue = { user: User | null; loading: boolean; configured: boolean; hasSession: boolean; error: string | null; login(email: string, password: string): Promise<User>; register(name: string, email: string, password: string): Promise<boolean>; requestPasswordReset(email: string): Promise<void>; updatePassword(password: string): Promise<void>; exchangeLink(accessToken: string, refreshToken: string): Promise<void>; logout(): Promise<void>; refreshUser(): Promise<User>; accessToken(): string | null };
 const AuthContext = createContext<AuthValue | null>(null);
-const apiBase = import.meta.env.VITE_API_URL ?? 'http://localhost:8000/api/v1';
 
-function session(): Session | null {
-  try {
-    const value = localStorage.getItem(SESSION_KEY);
-    if (!value) return null;
-    const parsed = JSON.parse(value) as Partial<Session>;
-    if (typeof parsed.access_token !== 'string' || typeof parsed.refresh_token !== 'string' || typeof parsed.expires_at !== 'number') {
-      localStorage.removeItem(SESSION_KEY);
-      return null;
-    }
-    return parsed as Session;
-  } catch { localStorage.removeItem(SESSION_KEY); return null; }
-}
-export function getAccessToken() { return session()?.access_token ?? null; }
-function saveSession(value: Session | null) { if (value) localStorage.setItem(SESSION_KEY, JSON.stringify(value)); else localStorage.removeItem(SESSION_KEY); }
 class AuthRequestError extends Error { constructor(message: string, readonly status: number) { super(message); } }
-function errorStatus(reason: unknown) { return reason instanceof AuthRequestError ? reason.status : undefined; }
-function errorMessage(reason: unknown, fallback: string) { return reason instanceof Error ? reason.message : fallback; }
-async function authRequest(path: string, body: unknown) {
-  if (!SUPABASE_URL || !SUPABASE_KEY) throw new Error('Authentication is not configured. Set the Supabase URL and public anon key in frontend/.env.local.');
-  let response: Response;
-  try {
-    response = await fetch(`${apiBase}/auth/gateway/${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  } catch {
-    throw new Error('Cannot reach the EcoPulse backend. Check that it is running on port 8000 and retry.');
-  }
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok) throw new AuthRequestError(result.detail ?? result.msg ?? result.message ?? result.error_description ?? 'Authentication request failed.', response.status);
-  return result;
-}
+function statusOf(reason: unknown) { return reason instanceof AuthRequestError ? reason.status : undefined; }
+function messageOf(reason: unknown, fallback: string) { return reason instanceof Error ? reason.message : fallback; }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [currentSession, setCurrentSession] = useState<Session | null>(() => session());
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [configured, setConfigured] = useState(false);
+  const [hasSession, setHasSession] = useState(false);
+  const [expiresAt, setExpiresAt] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const configured = Boolean(SUPABASE_URL && SUPABASE_KEY);
-  const accessToken = useCallback(() => currentSession?.access_token ?? null, [currentSession]);
+  const accessToken = useCallback(() => null, []);
 
-  const resolveUser = useCallback(async (token: string) => {
-    let response: Response;
-    try {
-      response = await fetch(`${apiBase}/auth/me`, { headers: { Authorization: `Bearer ${token}` } });
-    } catch {
-      throw new Error(`Sign-in succeeded, but EcoPulse could not reach its backend at ${apiBase}. Check that the backend is running and allows this website's address, then retry verification.`);
-    }
-    if (!response.ok) {
-      const result = await response.json().catch(() => ({}));
-      throw new AuthRequestError(result.detail ?? (response.status === 401 ? 'Your session expired. Please sign in again.' : `Unable to verify your account (HTTP ${response.status}).`), response.status);
-    }
-    return await response.json() as User;
+  const resolveUser = useCallback(async () => {
+    try { return await getJson<User>('/auth/me'); }
+    catch (reason) { throw new AuthRequestError(messageOf(reason, 'Unable to verify your account.'), reason instanceof Error && /401/.test(reason.message) ? 401 : 0); }
   }, []);
+
+  const acceptSession = useCallback(async (nextExpiry?: number) => {
+    const verified = await resolveUser();
+    setUser(verified);
+    setHasSession(true);
+    if (nextExpiry) setExpiresAt(nextExpiry);
+    setError(null);
+    return verified;
+  }, [resolveUser]);
 
   useEffect(() => {
     let active = true;
-    (async () => {
-      if (!currentSession) { if (active) { setUser(null); setLoading(false); } return; }
+    const boot = async () => {
+      // Remove the previous browser token store once. It is never read or sent.
+      try { localStorage.removeItem('ecopulse.auth.session'); } catch { /* storage may be unavailable */ }
       try {
-        let next = currentSession;
-        if (next.expires_at <= Math.floor(Date.now() / 1000) + 30) {
-          const refreshed = await authRequest('token?grant_type=refresh_token', { refresh_token: next.refresh_token });
-          next = { access_token: refreshed.access_token, refresh_token: refreshed.refresh_token, expires_at: Math.floor(Date.now() / 1000) + refreshed.expires_in, user: refreshed.user };
-          saveSession(next); if (active) setCurrentSession(next);
+        const state = await initializeBrowserSession();
+        if (!active) return;
+        setConfigured(state.configured);
+        setHasSession(state.authenticated);
+        setExpiresAt(state.expiresAt);
+
+        const params = new URLSearchParams(window.location.search);
+        const code = params.get('code');
+        const hash = new URLSearchParams(window.location.hash.slice(1));
+        const access = hash.get('access_token');
+        const refresh = hash.get('refresh_token');
+        if (code) {
+          await authGateway('exchange', { code });
+          params.delete('code');
+          params.delete('type');
+          const clean = `${window.location.pathname}${params.size ? `?${params}` : ''}`;
+          window.history.replaceState({}, document.title, clean);
+          setHasSession(true);
+        } else if (access && refresh) {
+          await authGateway('exchange-link', { access_token: access, refresh_token: refresh });
+          window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
+          setHasSession(true);
         }
-        const verified = await resolveUser(next.access_token);
-        if (active) { setUser(verified); setError(null); }
+        const sessionState = await initializeBrowserSession();
+        setHasSession(sessionState.authenticated);
+        setExpiresAt(sessionState.expiresAt);
+        if (sessionState.authenticated) await acceptSession(sessionState.expiresAt);
+        else setUser(null);
       } catch (reason) {
-        const status = errorStatus(reason);
-        if (status === 400 || status === 401) { saveSession(null); if (active) setCurrentSession(null); }
-        if (active) { setUser(null); setError(errorMessage(reason, 'Unable to restore session.')); }
+        if (active) {
+          setUser(null);
+          setError(messageOf(reason, 'Unable to restore the EcoPulse browser session.'));
+        }
       } finally { if (active) setLoading(false); }
-    })();
+    };
+    void boot();
     return () => { active = false; };
-  }, [currentSession, resolveUser]);
+  }, [acceptSession]);
 
   useEffect(() => {
-    if (!currentSession || !configured) return;
-    const delay = Math.max(1000, currentSession.expires_at * 1000 - Date.now() - 60_000);
+    if (!hasSession || !expiresAt || !configured) return;
+    const delay = Math.max(1000, expiresAt * 1000 - Date.now() - 60_000);
     const timer = window.setTimeout(async () => {
       try {
-        const refreshed = await authRequest('token?grant_type=refresh_token', { refresh_token: currentSession.refresh_token });
-        const next: Session = { access_token: refreshed.access_token, refresh_token: refreshed.refresh_token, expires_at: Math.floor(Date.now() / 1000) + refreshed.expires_in, user: refreshed.user };
-        saveSession(next); setCurrentSession(next); setError(null);
+        const result = await authGateway<{ authenticated: boolean; expires_at: number }>('token?grant_type=refresh_token', {});
+        if (result.authenticated) await acceptSession(result.expires_at);
       } catch (reason) {
-        const status = errorStatus(reason);
-        if (status === 400 || status === 401) { saveSession(null); setCurrentSession(null); setUser(null); }
-        setError(errorMessage(reason, 'Unable to refresh your session. Please retry.'));
+        const status = statusOf(reason);
+        if (status === 401) { setHasSession(false); setUser(null); updateBrowserSession(false); }
+        setError(messageOf(reason, 'Unable to refresh your session. Please retry.'));
       }
     }, delay);
     return () => window.clearTimeout(timer);
-  }, [currentSession, configured]);
+  }, [hasSession, expiresAt, configured, acceptSession]);
 
   const login = useCallback(async (email: string, password: string) => {
-    setError(null); setUser(null);
-    const result = await authRequest('token?grant_type=password', { email, password });
-    const next: Session = { access_token: result.access_token, refresh_token: result.refresh_token, expires_at: Math.floor(Date.now() / 1000) + result.expires_in, user: result.user };
-    saveSession(next); setCurrentSession(next);
-    try { const verified = await resolveUser(next.access_token); setUser(verified); setError(null); return verified; }
-    catch (reason) { setError(errorMessage(reason, 'Unable to verify your account right now.')); throw reason; }
-  }, [resolveUser]);
+    setLoading(true); setError(null); setUser(null);
+    try {
+      const result = await authGateway<{ authenticated: boolean; expires_at: number }>('token?grant_type=password', { email, password });
+      setHasSession(result.authenticated);
+      setExpiresAt(result.expires_at);
+      return await acceptSession(result.expires_at);
+    } catch (reason) {
+      setError(messageOf(reason, 'Sign in could not be completed.'));
+      throw reason;
+    } finally { setLoading(false); }
+  }, [acceptSession]);
+
   const register = useCallback(async (name: string, email: string, password: string) => {
     if (import.meta.env.DEV && ['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname)) {
-      const response = await fetch(`${apiBase}/auth/register-local`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ full_name: name, email, password }),
-      });
+      const API = import.meta.env.VITE_API_URL ?? 'http://localhost:8000/api/v1';
+      const { apiFetch } = await import('./api');
+      const response = await apiFetch('/auth/register-local', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ full_name: name, email, password }) });
       const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new AuthRequestError(result.detail ?? 'Registration failed.', response.status);
+      if (!response.ok) throw new AuthRequestError((result as { detail?: string }).detail ?? 'Registration failed.', response.status);
       return true;
     }
-    const result = await authRequest('signup', { email, password, data: { full_name: name } });
-    return Boolean(result.access_token);
+    await authGateway('signup', { email, password, data: { full_name: name } });
+    return false;
   }, []);
-  const requestPasswordReset = useCallback(async (email: string) => { await authRequest('recover', { email, redirectTo: `${window.location.origin}/reset-password` }); }, []);
+
+  const requestPasswordReset = useCallback(async (email: string) => {
+    const redirectTo = `${window.location.origin}/reset-password`;
+    await authGateway('recover', { email, redirectTo });
+  }, []);
+
   const updatePassword = useCallback(async (password: string) => {
-    const hashToken = new URLSearchParams(window.location.hash.slice(1)).get('access_token');
-    const token = currentSession?.access_token ?? hashToken;
-    if (!token) throw new Error('Use the password reset link sent to your email first.');
-    const response = await fetch(`${apiBase}/auth/gateway/user`, { method: 'PUT', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) });
-    if (!response.ok) throw new Error('Could not update your password. Request a fresh reset link and try again.');
-  }, [currentSession]);
+    const { authGateway: request } = await import('./api');
+    await request('user', { password }, 'PUT');
+  }, []);
+
+  const exchangeLink = useCallback(async (accessTokenValue: string, refreshTokenValue: string) => {
+    const result = await authGateway<{ authenticated: boolean; expires_at: number }>('exchange-link', { access_token: accessTokenValue, refresh_token: refreshTokenValue });
+    setHasSession(result.authenticated);
+    setExpiresAt(result.expires_at);
+  }, []);
+
   const logout = useCallback(async () => {
-    const token = currentSession?.access_token;
-    if (token && SUPABASE_URL && SUPABASE_KEY) await fetch(`${apiBase}/auth/gateway/logout`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } }).catch(() => undefined);
-    saveSession(null); setCurrentSession(null); setUser(null);
-  }, [currentSession]);
+    // Clear the UI and its query cache immediately, even when the API is offline.
+    setUser(null); setHasSession(false); setExpiresAt(0); setError(null); updateBrowserSession(false);
+    try { await authGateway('logout', {}); } catch { /* local UI is signed out; cookie expires if API is unreachable */ }
+  }, []);
 
   const refreshUser = useCallback(async () => {
-    if (!currentSession?.access_token) throw new Error('Sign in to continue.');
-    try {
-      let activeSession = currentSession;
-      if (activeSession.expires_at <= Math.floor(Date.now() / 1000) + 30) {
-        const refreshed = await authRequest('token?grant_type=refresh_token', { refresh_token: activeSession.refresh_token });
-        activeSession = { access_token: refreshed.access_token, refresh_token: refreshed.refresh_token, expires_at: Math.floor(Date.now() / 1000) + refreshed.expires_in, user: refreshed.user };
-        saveSession(activeSession); setCurrentSession(activeSession);
-      }
-      const verified = await resolveUser(activeSession.access_token); setUser(verified); setError(null); return verified;
-    } catch (reason) {
-      const status = errorStatus(reason);
-      if (status === 400 || status === 401) { saveSession(null); setCurrentSession(null); }
-      setUser(null); setError(errorMessage(reason, 'Unable to verify your account right now.')); throw reason;
+    try { return await acceptSession(); }
+    catch (reason) {
+      if (statusOf(reason) === 401) { setUser(null); setHasSession(false); updateBrowserSession(false); }
+      setError(messageOf(reason, 'Unable to verify your account right now.'));
+      throw reason;
     }
-  }, [currentSession, resolveUser]);
+  }, [acceptSession]);
 
-  const value = useMemo(() => ({ user, loading, configured, hasSession: Boolean(currentSession), error, login, register, requestPasswordReset, updatePassword, logout, refreshUser, accessToken }), [user, loading, configured, currentSession, error, login, register, requestPasswordReset, updatePassword, logout, refreshUser, accessToken]);
+  const value = useMemo(() => ({ user, loading, configured, hasSession, error, login, register,
+    requestPasswordReset, updatePassword, exchangeLink, logout, refreshUser, accessToken }),
+    [user, loading, configured, hasSession, error, login, register, requestPasswordReset, updatePassword, exchangeLink, logout, refreshUser, accessToken]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
+
 export function useAuth() { const value = useContext(AuthContext); if (!value) throw new Error('useAuth must be inside AuthProvider'); return value; }

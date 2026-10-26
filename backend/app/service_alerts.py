@@ -4,11 +4,11 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from .security import current_user, postgres_connection, require_roles
-from .email_notifications import send_user_notification_email
+from .services.notification_outbox import enqueue_alert_notifications
 
 router = APIRouter(prefix="/api/v1/service-alerts", tags=["service alerts"])
 
@@ -67,16 +67,6 @@ def _alert_for_official(con, alert_id: str, user: dict[str, Any], lock: bool = F
     return row
 
 
-def _resident_targets(con, alert_id: str) -> list[str]:
-    rows = con.execute("""select distinct p.id::text from public.profiles p
-      join public.service_alerts a on a.id=%s
-      where p.role='resident' and coalesce(p.account_status,'active')='active' and (
-        (a.target_scope='municipality' and p.municipality_id=a.municipality_id)
-        or (a.target_scope='community' and exists(
-          select 1 from public.service_alert_areas aa where aa.alert_id=a.id and aa.community_id=p.community_id)))""", (alert_id,)).fetchall()
-    return [row["id"] for row in rows]
-
-
 @router.get("")
 def list_alerts(limit: int = Query(25, ge=1, le=100), offset: int = Query(0, ge=0), user: dict[str, Any] = Depends(current_user)):
     with postgres_connection() as con:
@@ -129,7 +119,7 @@ def create_alert(body: AlertCreate, user: dict[str, Any] = Depends(require_roles
 
 
 @router.post("/{alert_id}/publish")
-def publish_alert(alert_id: UUID, background_tasks: BackgroundTasks, user: dict[str, Any] = Depends(require_roles("municipal"))):
+def publish_alert(alert_id: UUID, user: dict[str, Any] = Depends(require_roles("municipal"))):
     with postgres_connection() as con:
         alert = _alert_for_official(con, str(alert_id), user, True)
         if alert["status"] != "draft":
@@ -141,12 +131,10 @@ def publish_alert(alert_id: UUID, background_tasks: BackgroundTasks, user: dict[
             or (alert.target_scope='community' and exists(select 1 from public.service_alert_areas aa where aa.alert_id=alert.id and aa.community_id=p.community_id)))
           where alert.id=%s and not exists(select 1 from public.notifications n where n.resident_id=p.id and n.category='service_alert' and n.body like %s)""",
           (f"{alert['service_type'].upper()} ALERT: {alert['title']}", f"{alert['description']} View community service updates. [alert:{alert_id}]", str(alert_id), f"%[alert:{alert_id}]%"))
-        recipients = _resident_targets(con, str(alert_id))
         email_subject = f"{alert['service_type'].upper()} service alert: {alert['title']}"
         email_body = f"{alert['description']}\n\nThis alert applies to residents in your municipality. View service updates in your EcoPulse resident dashboard."
-    for resident_id in recipients:
-        background_tasks.add_task(send_user_notification_email, resident_id, email_subject, email_body, "municipal_notices")
-    return {"id": str(alert_id), "status": "published", "notification_recipient_count": len(recipients)}
+        recipient_count = enqueue_alert_notifications(con,str(alert_id),email_subject,email_body,event_key=f"service-alert:{alert_id}:published")
+    return {"id": str(alert_id), "status": "published", "notification_recipient_count": recipient_count}
 
 
 @router.get("/{alert_id}")
@@ -169,19 +157,19 @@ def alert_details(alert_id: UUID, user: dict[str, Any] = Depends(current_user)):
 
 
 @router.post("/{alert_id}/repair-plan", status_code=201)
-def create_repair_step(alert_id: UUID, body: RepairStep, background_tasks: BackgroundTasks, user: dict[str, Any] = Depends(require_roles("municipal"))):
+def create_repair_step(alert_id: UUID, body: RepairStep, user: dict[str, Any] = Depends(require_roles("municipal"))):
     with postgres_connection() as con:
         alert = _alert_for_official(con, str(alert_id), user)
         row = con.execute("""insert into public.service_alert_repair_steps(alert_id,title,description,status,responsible_team,position)
           values(%s,%s,%s,%s,%s,%s) returning id::text,title,description,status,responsible_team,position,updated_at""", (str(alert_id),body.title,body.description,body.status,body.responsible_team,body.position)).fetchone()
-        recipients = _resident_targets(con, str(alert_id)) if alert["published_at"] else []
-    for resident_id in recipients:
-        background_tasks.add_task(send_user_notification_email, resident_id, f"Repair progress: {alert['title']}", f"A public repair stage was added: {body.title}. {body.description}", "municipal_notices")
+        if alert["published_at"]:
+            enqueue_alert_notifications(con,str(alert_id),f"Repair progress: {alert['title']}",
+              f"A public repair stage was added: {body.title}. {body.description}",event_key=f"repair-step:{row['id']}:created")
     return dict(row)
 
 
 @router.patch("/{alert_id}/repair-plan/{step_id}")
-def update_repair_step(alert_id: UUID, step_id: UUID, body: StepUpdate, background_tasks: BackgroundTasks, user: dict[str, Any] = Depends(require_roles("municipal"))):
+def update_repair_step(alert_id: UUID, step_id: UUID, body: StepUpdate, user: dict[str, Any] = Depends(require_roles("municipal"))):
     fields = body.model_dump(exclude_unset=True)
     if not fields: raise HTTPException(422, "Provide at least one repair step field.")
     with postgres_connection() as con:
@@ -191,20 +179,21 @@ def update_repair_step(alert_id: UUID, step_id: UUID, body: StepUpdate, backgrou
         assignments = ",".join(f"{key}=%s" for key in fields)
         row = con.execute(f"update public.service_alert_repair_steps set {assignments},updated_at=now() where id=%s and alert_id=%s returning id::text,title,description,status,responsible_team,position,updated_at", (*fields.values(),str(step_id),str(alert_id))).fetchone()
         if not row: raise HTTPException(404, "Repair step not found.")
-        recipients = _resident_targets(con, str(alert_id)) if alert["published_at"] else []
-    for resident_id in recipients:
-        background_tasks.add_task(send_user_notification_email, resident_id, f"Repair progress: {alert['title']}", f"Repair stage update: {row['title']} is now {row['status'].replace('_',' ')}. {row['description']}", "municipal_notices")
+        if alert["published_at"]:
+            enqueue_alert_notifications(con,str(alert_id),f"Repair progress: {alert['title']}",
+              f"Repair stage update: {row['title']} is now {row['status'].replace('_',' ')}. {row['description']}",
+              event_key=f"repair-step:{row['id']}:{row['updated_at']}")
     return dict(row)
 
 
 @router.post("/{alert_id}/updates", status_code=201)
-def add_public_update(alert_id: UUID, background_tasks: BackgroundTasks, message: str = Query(..., min_length=3, max_length=2000), user: dict[str, Any] = Depends(require_roles("municipal"))):
+def add_public_update(alert_id: UUID, message: str = Query(..., min_length=3, max_length=2000), user: dict[str, Any] = Depends(require_roles("municipal"))):
     with postgres_connection() as con:
         alert = _alert_for_official(con, str(alert_id), user)
         row = con.execute("insert into public.service_alert_updates(alert_id,author_id,message) values(%s,%s,%s) returning id::text,message,created_at", (str(alert_id),user["id"],message.strip())).fetchone()
-        recipients = _resident_targets(con, str(alert_id)) if alert["published_at"] else []
-    for resident_id in recipients:
-        background_tasks.add_task(send_user_notification_email, resident_id, f"Service alert update: {alert['title']}", message.strip(), "municipal_notices")
+        if alert["published_at"]:
+            enqueue_alert_notifications(con,str(alert_id),f"Service alert update: {alert['title']}",message.strip(),
+                                        event_key=f"service-alert-update:{row['id']}")
     return dict(row)
 
 
@@ -214,14 +203,15 @@ class AlertStatus(BaseModel):
 
 
 @router.patch("/{alert_id}")
-def update_alert(alert_id: UUID, body: AlertStatus, background_tasks: BackgroundTasks, user: dict[str, Any] = Depends(require_roles("municipal"))):
+def update_alert(alert_id: UUID, body: AlertStatus, user: dict[str, Any] = Depends(require_roles("municipal"))):
     with postgres_connection() as con:
         alert = _alert_for_official(con, str(alert_id), user, True)
         row = con.execute("update public.service_alerts set status=%s,estimated_restoration_at=%s,updated_at=now() where id=%s and published_at is not null returning id::text,status,estimated_restoration_at,updated_at", (body.status,body.estimated_restoration_at,str(alert_id))).fetchone()
-        recipients = _resident_targets(con, str(alert_id))
-    for resident_id in recipients:
+        if not row:
+            raise HTTPException(409,"Publish the alert before changing its service status.")
         estimate = f" Estimated restoration: {row['estimated_restoration_at']}." if row["estimated_restoration_at"] else ""
-        background_tasks.add_task(send_user_notification_email, resident_id, f"Service alert update: {alert['title']}", f"Service status: {row['status'].replace('_',' ')}.{estimate}", "municipal_notices")
+        enqueue_alert_notifications(con,str(alert_id),f"Service alert update: {alert['title']}",
+          f"Service status: {row['status'].replace('_',' ')}.{estimate}",event_key=f"service-alert:{alert_id}:{row['updated_at']}")
     return dict(row)
 
 

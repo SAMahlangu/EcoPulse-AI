@@ -2,8 +2,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Lightbulb, Pencil, Plus, Refrigerator, Trash2 } from 'lucide-react';
-import { getJson, postJson, putJson } from '../../services/api';
-import { getAccessToken } from '../../services/auth';
+import { apiFetch, getJson, postJson, putJson } from '../../services/api';
 import type { EnergyAdvisorResponse, EnergyAppliance, EnergyApplianceAnalysis } from '../../types/energy';
 import { energyMoney, energyNumber } from '../../types/energy';
 import { EnergyDemoBadge } from './EnergyChart';
@@ -11,9 +10,7 @@ import { EnergyDemoBadge } from './EnergyChart';
 const choices = ['Electric geyser', 'Refrigerator', 'Television', 'Washing machine', 'Electric heater', 'Air conditioner', 'Microwave', 'Electric stove', 'Kettle', 'Computer', 'Other'];
 const blank = { appliance_name: 'Electric heater', power_watts: '', operating_hours: '', quantity: '1', duty_cycle: '100' };
 async function deleteAppliance(id: string, query: string) {
-  const token = getAccessToken();
-  const root = import.meta.env.VITE_API_URL ?? 'http://localhost:8000/api/v1';
-  const response = await fetch(`${root}/energy/appliances/${encodeURIComponent(id)}${query}`, { method: 'DELETE', headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  const response = await apiFetch(`/energy/appliances/${encodeURIComponent(id)}${query}`, { method: 'DELETE' });
   if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(typeof body.detail === 'string' ? body.detail : `Could not remove appliance (${response.status})`); }
 }
 

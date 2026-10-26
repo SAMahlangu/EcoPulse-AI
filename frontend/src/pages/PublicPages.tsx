@@ -1,8 +1,9 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { Activity, ArrowRight, BarChart3, Check, CloudSun, Droplets, Leaf, LockKeyhole, MapPinned, Menu, ShieldCheck, Sparkles, Users, X, Zap } from 'lucide-react';
 import { useAuth } from '../services/auth';
-import { postJson } from '../services/api';
+import { getJson, postJson } from '../services/api';
 import './public.css';
 
 const features = [
@@ -64,10 +65,42 @@ export function AuthPage({mode}:{mode:AuthMode}) {
     </section><p className="auth-legal">By continuing, you agree to our <Link to="/terms">Terms</Link> and acknowledge our <Link to="/privacy">Privacy information</Link>.</p></div></div>;
 }
 
+type AuthenticatorFactor = { id: string; friendly_name: string | null; status: 'verified' | 'unverified' };
+type FactorList = { items: AuthenticatorFactor[]; aal: string };
+
+export function MfaGate() {
+  const auth = useAuth();
+  const factors = useQuery({ queryKey: ['authenticator-factors', auth.user?.id], queryFn: () => getJson<FactorList>('/auth/mfa/factors'), enabled: Boolean(auth.user) });
+  const [factorId, setFactorId] = useState('');
+  const [qrCode, setQrCode] = useState('');
+  const [secret, setSecret] = useState('');
+  const [code, setCode] = useState('');
+  const [message, setMessage] = useState('');
+  useEffect(() => {
+    const factor = factors.data?.items.find(item => item.status === 'verified');
+    if (factor && !factorId) setFactorId(factor.id);
+  }, [factors.data, factorId]);
+  const enroll = useMutation({ mutationFn: () => postJson<{ id: string; totp: { qr_code?: string; secret?: string } }>('/auth/mfa/enroll', {}), onSuccess: result => { setFactorId(result.id); setQrCode(result.totp.qr_code ?? ''); setSecret(result.totp.secret ?? ''); setCode(''); setMessage('Scan the code with an authenticator app, then enter its current six-digit code.'); void factors.refetch(); }, onError: error => setMessage(error.message) });
+  const verify = useMutation({ mutationFn: () => postJson('/auth/mfa/verify', { factor_id: factorId, code }), onSuccess: async () => { setMessage('Authenticator verified.'); setQrCode(''); setSecret(''); setCode(''); await auth.refreshUser(); }, onError: error => setMessage(error.message) });
+  const verified = Boolean(factors.data?.items.some(item => item.status === 'verified'));
+  return <main className="auth-loading"><section className="auth-card" style={{ maxWidth: 480 }}>
+    <span className="auth-emblem"><LockKeyhole size={21}/></span><p className="public-kicker">PRIVILEGED ACCOUNT SECURITY</p><h1>Verify your authenticator</h1>
+    <p className="auth-intro">Municipal and administrator workspaces require a second verification step. Your account must have an authenticator app enabled.</p>
+    {factors.isPending ? <p role="status">Checking authenticator setup…</p> : factors.isError ? <div role="alert"><p>{factors.error.message}</p><button className="button-outline" onClick={() => void factors.refetch()}>Retry</button></div> : <>
+      {!qrCode && !verified && <button className="button-primary" disabled={enroll.isPending} onClick={() => enroll.mutate()}>{enroll.isPending ? 'Preparing authenticator…' : 'Set up an authenticator app'}</button>}
+      {verified && <p>Your authenticator is ready. Enter its current code to continue.</p>}
+      {qrCode && <div className="mfa-enrollment"><p>Scan this code with your authenticator app.</p><img src={qrCode} alt="EcoPulse authenticator setup QR code"/><p>If scanning is unavailable, enter this setup key manually:</p><code className="mfa-secret">{secret}</code></div>}
+      {factorId && <form className="auth-form" onSubmit={event => { event.preventDefault(); verify.mutate(); }}><label>Six-digit authenticator code<input aria-label="Six-digit authenticator code" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} value={code} onChange={event => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))} required/></label><button className="public-cta auth-submit" disabled={verify.isPending || code.length !== 6}>{verify.isPending ? 'Verifying…' : 'Verify and continue'} <ArrowRight size={16}/></button></form>}
+    </>}
+    {message && <p role="status" className="auth-message">{message}</p>}
+    <button className="button-outline" onClick={() => void auth.logout()}>Sign out</button>
+  </section></main>;
+}
+
 export function LegalPage({kind}:{kind:'privacy'|'terms'}) { return <div className="legal-page"><Link to="/" className="public-brand"><img src="/ecopulse-ai-logo.png" alt="EcoPulse AI"/></Link><p className="public-kicker">DRAFT FOR REVIEW</p><h1>{kind==='privacy'?'Privacy information':'Terms of service'}</h1><p className="legal-draft">This initial information page is a draft for product and legal review. It must be checked and completed by the platform operator before public launch.</p>{kind==='privacy'?<><h2>Information used by the platform</h2><p>EcoPulse may process account details, information you submit in incident reports, meter readings you choose to record, and basic technical information needed to operate the service. Contact form submissions are stored in the configured platform database.</p><h2>How information is used</h2><p>Information is used to provide account access, display community service information, route and update incident reports, and respond to enquiries. Access to household information should be limited according to the platform’s role and data access rules.</p><h2>Questions and retention</h2><p>Retention periods, responsible operator details, data subject request procedures, and jurisdiction-specific privacy disclosures must be supplied before production use.</p></>:<><h2>Availability and information</h2><p>EcoPulse provides climate context and community reporting tools. Forecasts and automated assessments are informational, may be incomplete, and are not official emergency instructions. Follow guidance from authorised emergency and public agencies.</p><h2>Accounts</h2><p>Users must protect their credentials and provide accurate information. Municipal and administrator privileges are restricted to accounts provisioned by authorised platform operators.</p><h2>Operator details</h2><p>Service levels, acceptable use terms, liability, dispute handling, and the legal identity and contact details of the operator must be completed before public launch.</p></>}<Link className="public-secondary" to="/">Return to EcoPulse AI</Link></div>; }
 
-export function AcceptInvitationPage(){const [busy,setBusy]=useState(false);const [message,setMessage]=useState<string|null>(null);const navigate=useNavigate();const invitation=new URLSearchParams(window.location.search).get('invitation');const accessToken=new URLSearchParams(window.location.hash.slice(1)).get('access_token');
-  async function submit(event:FormEvent<HTMLFormElement>){event.preventDefault();const password=String(new FormData(event.currentTarget).get('password')||'');if(!invitation||!accessToken){setMessage('This invitation link is incomplete or expired. Ask an administrator for a new invitation.');return;}const supabaseUrl=import.meta.env.VITE_SUPABASE_URL?.replace(/\/$/,'');const publicKey=import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY||import.meta.env.VITE_SUPABASE_ANON_KEY;if(!supabaseUrl||!publicKey){setMessage('Supabase authentication is not configured.');return;}setBusy(true);setMessage(null);try{const passwordResponse=await fetch(`${supabaseUrl}/auth/v1/user`,{method:'PUT',headers:{apikey:publicKey,Authorization:`Bearer ${accessToken}`,'Content-Type':'application/json'},body:JSON.stringify({password})});if(!passwordResponse.ok)throw new Error('The invitation session expired. Request a fresh invitation email.');const response=await fetch(`${import.meta.env.VITE_API_URL??'http://localhost:8000/api/v1'}/auth/accept-municipal-invitation`,{method:'POST',headers:{Authorization:`Bearer ${accessToken}`,'Content-Type':'application/json'},body:JSON.stringify({token:invitation})});const result=await response.json().catch(()=>({}));if(!response.ok)throw new Error(result.detail??'Invitation acceptance failed.');setMessage('Your municipal access is active. Sign in to open the municipal workspace.');window.history.replaceState({},document.title,window.location.pathname);window.setTimeout(()=>navigate('/login',{replace:true}),1800);}catch(e){setMessage(e instanceof Error?e.message:'Could not complete the invitation.');}finally{setBusy(false);}}
+export function AcceptInvitationPage(){const [busy,setBusy]=useState(false);const [message,setMessage]=useState<string|null>(null);const navigate=useNavigate();const auth=useAuth();const invitation=new URLSearchParams(window.location.search).get('invitation');const fragment=new URLSearchParams(window.location.hash.slice(1));const accessToken=fragment.get('access_token');const refreshToken=fragment.get('refresh_token');
+  async function submit(event:FormEvent<HTMLFormElement>){event.preventDefault();const password=String(new FormData(event.currentTarget).get('password')||'');if(!invitation||!accessToken||!refreshToken){setMessage('This invitation link is incomplete or expired. Ask an administrator for a new invitation.');return;}setBusy(true);setMessage(null);try{await auth.exchangeLink(accessToken,refreshToken);await auth.updatePassword(password);await postJson('/auth/accept-municipal-invitation',{token:invitation});await auth.refreshUser();setMessage('Your municipal access is active. Opening your workspace…');window.history.replaceState({},document.title,window.location.pathname);window.setTimeout(()=>navigate('/municipal',{replace:true}),500);}catch(e){setMessage(e instanceof Error?e.message:'Could not complete the invitation.');}finally{setBusy(false);}}
   return <div className="auth-page"><div className="auth-art"><Link to="/" className="public-brand"><img src="/ecopulse-ai-logo.png" alt="EcoPulse AI"/></Link><div><p className="public-kicker">AUTHORISED MUNICIPAL ACCESS</p><h1>Coordinate<br/><em>community response.</em></h1><p>Municipal accounts are created only through an authorised invitation.</p></div><small>EcoPulse AI · South Africa</small></div><div className="auth-main"><section className="auth-card"><span className="auth-emblem"><LockKeyhole size={21}/></span><p className="public-kicker">MUNICIPAL INVITATION</p><h2>Finish setting up access</h2><p className="auth-intro">Choose a password to activate the municipality access associated with this invitation.</p><form className="auth-form" onSubmit={submit}><label>New password<input type="password" name="password" autoComplete="new-password" required minLength={8}/></label><button className="public-cta auth-submit" disabled={busy}>{busy?'Activating…':'Accept invitation'} <ArrowRight size={16}/></button></form>{message&&<p className="auth-message" role="status">{message}</p>}</section></div></div>;
 }
 

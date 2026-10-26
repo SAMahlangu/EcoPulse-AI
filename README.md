@@ -11,13 +11,17 @@ EcoPulse is a responsive community resilience platform with React + TypeScript, 
 5. Start the API in `backend/` with `uvicorn app.main:app --reload` and the UI in `frontend/` with `npm run dev`.
 6. Open `http://localhost:5173`; API documentation is at `http://localhost:8000/docs`.
 
+`GET /api/v1/health` is a liveness check. Shared deployments can use `GET /api/v1/health/ready` after migrations 016 and 017; it checks database connectivity and the required notification and incident-deadline schema.
+
 The sample keeps local SQLite demo mode off. To intentionally run an isolated demo without Supabase, set `ECOPULSE_LOCAL_DEMO=true` in your local `backend/.env`; leave it `false` for any shared or deployed system.
 
 ## Supabase setup
 
 Configure `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in the frontend. Configure `SUPABASE_URL`, `DATABASE_URL`, and a supported JWT verification setup in the backend. Keep `SUPABASE_SECRET_KEY` backend-only; it is required for invitation email and private incident media. Legacy `anon` and `service_role` variable names remain as migration fallbacks. Set Supabase Auth email confirmation and redirect URLs for the deployed UI.
 
-Review and apply migrations in order: `001_resident_portal.sql`, `002_climate_intelligence.sql`, `003_multi_role_platform.sql`, and `004_incident_reporting_onboarding.sql`. Apply first to a development Supabase project, then verify the RLS policies and Auth/Storage configuration before production. Migration 004 adds the private `incident-media` Storage bucket, report references and AI provenance, plus resident onboarding fields. It is additive; do not apply against an unreviewed production schema.
+For production, set `APP_PUBLIC_URL` to the HTTPS API origin and `CORS_ORIGINS` to the exact HTTPS UI origin(s). Set frontend `VITE_API_URL` to the HTTPS API URL. Browser sessions use Secure, HttpOnly, SameSite=Lax cookies; keep the UI and API on the same site (or proxy the API through the UI origin) so browsers send the session cookie. Do not serve a shared deployment over plain HTTP.
+
+Review the ordered migration list in [database/migrations/README.md](database/migrations/README.md). The repository contains later schema updates for household intelligence, durable email delivery, and incident service deadlines. Apply them first to a development Supabase project, then verify the RLS policies, Auth/Storage configuration, and API behavior before production. Do not apply unreviewed migrations to a production schema.
 
 Public registration provisions resident accounts only. On first login, a resident selects an existing province and municipality, enters a community/suburb, and chooses notification preferences. A trusted admin invitation grants municipal membership; admin role assignment remains server-side.
 
@@ -25,7 +29,7 @@ Public registration provisions resident accounts only. On first login, a residen
 
 Set `RESEND_API_KEY` and `RESEND_FROM` in `backend/.env`, then restart the API. Use a sender address on a verified Resend domain. Resend takes priority when its API key is set; otherwise the existing `SMTP_*` settings are used. Supabase Auth email configuration is separate from application notifications.
 
-Incident updates and municipal service alert updates email the resident's account address, respecting their `incident_updates` and `municipal_notices` preferences. Delivery runs in the background; provider failures leave the in-app notification intact. Check API logs for Resend acceptance or HTTP rejection status. Acceptance does not confirm inbox delivery; check the Resend dashboard for delivery/bounce status. These background tasks are not a durable queue and do not retry failed deliveries.
+Incident updates and municipal service alert updates create durable email jobs in the same transaction as their in-app updates. Delivery respects each resident's `incident_updates`, `climate_alerts`, and `municipal_notices` preferences. After applying migration 016, the API worker processes and retries queued messages; set `ECOPULSE_NOTIFICATION_WORKER_ENABLED=false` on API instances that should not send mail. See [notification delivery operations](docs/notification-delivery.md) for worker settings, retry behavior, and the administrator delivery page. Provider acceptance does not confirm inbox delivery; check the provider dashboard for delivery or bounce status.
 
 ## Incident image analysis
 
@@ -35,7 +39,7 @@ The supplied custom YOLO model at `backend/models/best.pt` now powers infrastruc
 
 ## Main API flows
 
-- `POST /api/v1/incidents/analyze-image` validates and analyzes a photo before submission; requires a resident access token.
+- `POST /api/v1/incidents/analyze-image` validates and analyzes a photo before submission; requires an authenticated resident session.
 - `POST /api/v1/incidents/submit` accepts `report` JSON plus an optional `image` multipart part, stores the record/media, and returns a unique public reference.
 - `GET /api/v1/incidents` and `GET /api/v1/incidents/{id}` are limited to the authenticated resident's own reports and public updates.
 - `GET /api/v1/resident/onboarding` and `PUT /api/v1/resident/onboarding` provide trusted municipality/community selection and preferences.
@@ -46,7 +50,7 @@ The supplied custom YOLO model at `backend/models/best.pt` now powers infrastruc
 
 Run backend checks from the repository root with `PYTHONPATH=.` and `backend/venv/Scripts/python.exe -m pytest backend/tests -q`. Image preprocessing tests require Pillow; multipart routes require `python-multipart`; both are declared in `backend/requirements.txt`. Frontend type checking uses `frontend/node_modules/.bin/tsc -b`.
 
-Supabase migration 008 is applied and department/API/RLS isolation has been verified using rollback-only fixtures. The supplied custom YOLO weights load successfully; representative-image accuracy is not yet evaluated. Privacy/terms pages remain drafts; some community-resources, household management, and advanced analytics sections still depend on future data integration. SQLite mode is isolated local demo storage and is not appropriate for real resident records or public deployment.
+Supabase migration 008 is applied and department/API/RLS isolation has been verified using rollback-only fixtures. Migrations 016 and 017 are new and must be applied to each database before enabling their email-delivery and incident-follow-up screens. Municipal and administrator sessions use HttpOnly cookies and require authenticator MFA; set production API/UI origins to HTTPS before deployment. The supplied custom YOLO weights load successfully; representative-image accuracy is not yet evaluated. Privacy/terms pages remain drafts, and SQLite mode is isolated local demo storage, not appropriate for real resident records or public deployment.
 
 Weather uses Open-Meteo and transparent rule-based screening; it is not emergency guidance. Keep `SUPABASE_SECRET_KEY` and the legacy `SUPABASE_SERVICE_ROLE_KEY` out of frontend configuration and Git.
 

@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from .services import network
 from .services.supabase_keys import supabase_secret_headers, supabase_secret_key
 from .security import postgres_connection, require_roles
-from .email_notifications import send_user_notification_email
+from .services.notification_outbox import enqueue_notification
 
 router = APIRouter(prefix='/api/v1/infrastructure')
 
@@ -56,14 +56,10 @@ def require_report(con, report_id, user, manager=False):
 
 def notify_reporter(con, report, message):
     if report['reporter_id']:
-        con.execute("insert into public.notifications(resident_id,title,body,category,official) values(%s,%s,%s,'incident_update',true)",
-                    (report['reporter_id'], f"Report update: {report['title']}", message))
-
-
-def queue_reporter_email(background_tasks, report, message):
-    if report['reporter_id']:
-        background_tasks.add_task(send_user_notification_email, str(report['reporter_id']),
-                                  f"Report update: {report['title']}", message, 'incident_updates')
+        notification = con.execute("insert into public.notifications(resident_id,title,body,category,official) values(%s,%s,%s,'incident_update',true) returning id::text",
+                                   (report['reporter_id'], f"Report update: {report['title']}", message)).fetchone()
+        enqueue_notification(con, str(report['reporter_id']), f"Report update: {report['title']}",
+                             message, 'incident_updates', event_key=f"notification:{notification['id']}")
 
 
 @router.get('/departments/my')
@@ -131,11 +127,10 @@ def assign_technician(report_id: UUID, data: Assignment, background_tasks: Backg
             raise HTTPException(422, 'The technician must be authorised for this report department and municipality.')
         con.execute('''insert into public.incident_assignments(incident_id,assigned_to,assigned_by) values(%s,%s,%s)
           on conflict(incident_id,assigned_to) do nothing''', (report_id,data.assigned_to,user['id']))
-        con.execute("update public.incidents set status='assigned',updated_at=now() where id=%s", (report_id,))
+        con.execute("update public.incidents set status='assigned',first_response_at=coalesce(first_response_at,now()),updated_at=now() where id=%s", (report_id,))
         message = 'A technician has been assigned to your report.'
         con.execute("insert into public.incident_updates(incident_id,author_id,status,message,official) values(%s,%s,'assigned',%s,true)", (report_id,user['id'],message))
         notify_reporter(con, row, message)
-    queue_reporter_email(background_tasks, row, message)
     return {'success': True}
 
 
@@ -202,7 +197,6 @@ async def completion_image(report_id: UUID, request: Request, background_tasks: 
             except httpx.HTTPError: pass
         if isinstance(exc,HTTPException): raise
         raise HTTPException(503,'Could not save the repair image. Please retry.') from exc
-    queue_reporter_email(background_tasks,row,message)
     return {'success':True}
 
 
@@ -212,11 +206,10 @@ def reassign(report_id: UUID, data: Reassignment, background_tasks: BackgroundTa
         row=require_report(con, report_id,user,manager=True)
         if not con.execute('select 1 from public.municipal_departments where id=%s and municipality_id=%s and is_active',(data.department_id,row['municipality_id'])).fetchone():
             raise HTTPException(422, 'Reassignment must remain within this municipality.')
-        con.execute('update public.incidents set department_id=%s,updated_at=now() where id=%s',(data.department_id,report_id))
+        con.execute('update public.incidents set department_id=%s,first_response_at=coalesce(first_response_at,now()),updated_at=now() where id=%s',(data.department_id,report_id))
         con.execute('delete from public.incident_assignments where incident_id=%s',(report_id,))
         message='Your report was reassigned to another municipal department: '+data.notes
         con.execute('insert into public.incident_updates(incident_id,author_id,message,official) values(%s,%s,%s,true)',(report_id,user['id'],message))
         notify_reporter(con,row,message)
         con.execute("insert into public.admin_audit_logs(actor_id,action,target_type,target_id) values(%s,'report_reassigned','incident',%s)",(user['id'],str(report_id)))
-    queue_reporter_email(background_tasks,row,message)
     return {'success': True}

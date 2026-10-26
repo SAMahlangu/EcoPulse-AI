@@ -94,6 +94,10 @@ class SecurityHeadersMiddleware:
         "/api/v1/municipal/",
         "/api/v1/admin/",
         "/api/v1/infrastructure/",
+        "/api/v1/water/",
+        "/api/v1/energy/",
+        "/api/v1/assistant/",
+        "/api/v1/climate/preferences",
     )
 
     def __init__(self, app: ASGIApp) -> None:
