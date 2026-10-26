@@ -1,12 +1,14 @@
 /** Build a restrictive policy from the exact API and Supabase origins in use. */
 export function securityPolicyPlugin({ apiOrigin, supabaseOrigin }) {
-  const connectSources = ["'self'", apiOrigin, supabaseOrigin].filter(Boolean);
+  const mapTileOrigin = "https://tiles.openfreemap.org";
+  const connectSources = ["'self'", apiOrigin, supabaseOrigin, mapTileOrigin].filter(Boolean);
   const imageSources = [
     "'self'",
     "data:",
     "blob:",
     "https://tile.openstreetmap.org",
     "https://*.tile.openstreetmap.org",
+    mapTileOrigin,
     supabaseOrigin,
   ].filter(Boolean);
 

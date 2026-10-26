@@ -1,0 +1,133 @@
+.ei-explanation .ei-form-tip {
+  margin: 0 0 10px;
+  color: #728794;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.ei-explanation .ei-text-label > span {
+  color: #8b9ba5;
+  font-size: 10px;
+  font-weight: 400;
+}
+
+.ei-explanation .ei-required-tip {
+  margin: 9px 0 0;
+  color: #718695;
+}
+
+.ei-analysis-loading {
+  margin: 12px 0;
+  color: #4e7182;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.ei-result-status {
+  margin: 15px 0 -8px;
+  color: #287349;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.ei-explanation-result {
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid #b9dce8;
+  border-radius: 10px;
+  background: linear-gradient(145deg, #f4fbfd, #f8fcfa);
+  scroll-margin-block: 90px;
+}
+
+.ei-explanation-result:focus {
+  outline: 3px solid #6dc8e7;
+  outline-offset: 3px;
+}
+
+.ei-result-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ei-result-heading h4 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  color: #276b83;
+  font-size: 13px;
+}
+
+.ei-result-heading .ei-source {
+  margin: 0;
+}
+
+.ei-result-summary,
+.ei-explanation-result li,
+.ei-result-empty {
+  color: #526d7c;
+  font-size: 12px;
+  line-height: 1.75;
+}
+
+.ei-result-summary {
+  margin: 12px 0;
+}
+
+.ei-explanation-result h5 {
+  margin: 14px 0 6px;
+  color: #365b6b;
+  font-size: 11px;
+}
+
+.ei-explanation-result ul {
+  margin: 6px 0 12px;
+  padding-left: 19px;
+}
+
+.ei-explanation-result li + li {
+  margin-top: 5px;
+}
+
+.ei-result-empty {
+  margin: 6px 0;
+}
+
+.ei-explanation-result .ei-caveat {
+  margin-bottom: 10px;
+}
+
+.ei-explanation-result > small {
+  color: #81939d;
+  font-size: 10px;
+}
+
+.ei-explanation-error details {
+  margin-top: 8px;
+  color: #718695;
+  font-size: 10px;
+}
+
+.ei-explanation-error summary {
+  cursor: pointer;
+}
+
+.ei-explanation-error details p {
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+
+@media (max-width: 640px) {
+  .ei-explanation-result {
+    padding: 13px;
+  }
+
+  .ei-result-summary,
+  .ei-explanation-result li,
+  .ei-result-empty {
+    font-size: 11px;
+  }
+}
