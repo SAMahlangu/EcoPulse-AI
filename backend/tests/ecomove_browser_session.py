@@ -34,6 +34,10 @@ def main():
     if not key:
         raise RuntimeError('Configure the backend Supabase secret key before running this test.')
     if sys.argv[1] == '--delete':
+        # Existing notifications do not cascade when a fixture profile is deleted.
+        # Remove only this test actor's notifications before deleting their account.
+        with postgres_connection() as con:
+            con.execute('delete from public.notifications where resident_id=%s', (sys.argv[2],))
         response = network.request(
             'DELETE',
             f'{url}/auth/v1/admin/users/{sys.argv[2]}',

@@ -4,7 +4,8 @@ import IncidentCamera from '../components/IncidentCamera';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, ArrowLeft, ArrowRight, CheckCircle2, MapPin, Send, Sparkles, Trash2 } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
+import { waterInvestigationPrefill } from '../services/waterInvestigation';
 import { getJson, postForm } from '../services/api';
 import IncidentLocationPicker from '../components/IncidentLocationPicker';
 import { ProvinceSelect, MunicipalitySelect } from '../components/geography/GeographySelects';
@@ -21,10 +22,12 @@ type Created = { id: string | number; reference?: string; category: string; stat
 type ResolvedPlace = { location:string; province:{id:string;name:string}|null; municipality:{id:string;name:string;province:string}|null; source:string };
 
 export function Incidents() {
+  const location = useLocation();
+  const [waterPrefill] = useState(() => waterInvestigationPrefill(location.state));
   const { user } = useAuth();
   const residentArea = useResidentArea();
   const profileLocationApplied = useRef(false);
-  const [form, setForm] = useState({ category:'water', title:'', description:'', location:'', latitude:'', longitude:'', training_consent:false, municipality_id:'' });
+  const [form, setForm] = useState({ category:'water', title:waterPrefill?.title ?? '', description:waterPrefill?.description ?? '', location:'', latitude:'', longitude:'', training_consent:false, municipality_id:'' });
   const [provinceId,setProvinceId]=useState('');
   const [place,setPlace]=useState<ResolvedPlace|null>(null);
   const [locationBusy,setLocationBusy]=useState(false);
@@ -82,6 +85,7 @@ export function Incidents() {
   const categoryName=(value:string)=>categories.find(([key])=>key===value)?.[1]??'Other / unknown';
   if(stage==='success'&&success)return <div className="content"><div className="report-success-card panel"><span className="report-success-icon"><CheckCircle2 size={28}/></span><p className="eyebrow">REPORT SUBMITTED</p><h1>Your report is on its way</h1><p>Keep this reference number for follow-up.</p><strong className="report-reference">{success.reference??`EP-${String(success.id).slice(0,12).toUpperCase()}`}</strong><dl><dt>Category</dt><dd>{categoryName(success.category)}</dd><dt>Submitted</dt><dd>{new Date(success.created_at).toLocaleString()}</dd><dt>Status</dt><dd>{success.status.replace(/_/g,' ')}</dd></dl><Link className="button-primary" to="/resident/my-reports">Track this report <ArrowRight size={16}/></Link></div></div>;
   return <div className="content incident-wizard"><div className="page-heading"><div><p className="eyebrow">COMMUNITY REPORTING</p><h1>Report an issue</h1><p className="muted">Describe what you observed. A photo analysis can help, but is optional.</p></div></div><div className="notice-banner"><AlertTriangle size={18}/><p><b>In an emergency?</b> Contact emergency services directly. EcoPulse reports are not monitored as an emergency service.</p></div>
+    {waterPrefill && <div className="notice-banner" data-testid="water-investigation-draft"><AlertTriangle size={18}/><p><b>Water consumption investigation</b> This is an editable draft, not a confirmed leak. Check the location, describe what you observed and optionally attach a photo for the existing AI image analysis. Nothing is submitted until you review and confirm.</p></div>}
     <div className="wizard-progress" aria-label="Reporting stages"><span className={stage==='details'?'current':''}>1 <b>Photo</b></span><i/><span>2 <b>Identify</b></span><i/><span>3 <b>Location</b></span><i/><span className={stage==='review'?'current':''}>4 <b>Submit</b></span><i/><span>5 <b>Track</b></span></div>
     {stage==='details'?<form className="panel wizard-panel" onSubmit={goReview}>
       <section className="wizard-section"><div className="wizard-section-heading"><span>1</span><div><h2>Add a photo <small>optional</small></h2><p>Take a new photo or choose one from your device.</p></div></div><div className="photo-actions"><IncidentCamera onPhoto={choose}/><label className="button-outline"><Sparkles size={15}/> Upload photo<input type="file" accept="image/jpeg,image/png,image/webp" onChange={e=>choose(e.target.files?.[0])}/></label></div>{photoMessage&&<p className="form-error">{photoMessage}</p>}{preview&&<div className="photo-preview"><img src={preview} alt="Incident photo preview"/><div><b>{photo?.name}</b><small>{((photo?.size??0)/1024/1024).toFixed(1)} MB · JPEG, PNG or WebP</small><button type="button" className="table-action" onClick={()=>choose()}><Trash2 size={14}/> Remove photo</button></div></div>}{photo===null&&analyze.error&&<p className="form-error">{(analyze.error as Error).message}</p>}<p className="wizard-privacy">Requesting AI sends the photo to EcoPulse for processing; YOLO runs on the server. Gemini may receive the image and description when additional interpretation is requested; no analysis photo is stored by EcoPulse. A photo attached to a submitted report is stored privately.</p></section>

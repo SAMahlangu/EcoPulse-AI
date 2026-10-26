@@ -31,6 +31,8 @@ from .auth_gateway import router as auth_gateway_router
 from .ecomove import router as ecomove_router
 from .service_alerts import router as service_alerts_router
 from .assistant import router as assistant_router
+from .water import router as water_router, validation_error_response as water_validation_error_response
+from .energy import router as energy_router, validation_error_response as energy_validation_error_response
 from .security import database_url, local_demo_enabled, optional_current_user, postgres_connection
 from .security_middleware import RequestBodyLimitMiddleware, SecurityHeadersMiddleware
 
@@ -67,6 +69,8 @@ app.include_router(auth_gateway_router)
 app.include_router(ecomove_router)
 app.include_router(service_alerts_router)
 app.include_router(assistant_router)
+app.include_router(water_router)
+app.include_router(energy_router)
 origins = [x.strip() for x in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",") if x.strip()]
 # Development URLs may use either loopback hostname, including Vite's fallback
 # and preview ports. Production origins remain explicitly configured.
@@ -77,6 +81,10 @@ local_origin_regex = r"http://(?:localhost|127\.0\.0\.1|\[::1\]):(?:517[3-9]|417
 
 @app.exception_handler(RequestValidationError)
 async def handle_validation_error(request: Request, exc: RequestValidationError):
+    if request.url.path.startswith('/api/v1/water/'):
+        return water_validation_error_response()
+    if request.url.path.startswith('/api/v1/energy/'):
+        return energy_validation_error_response()
     if request.url.path.startswith('/api/v1/auth/gateway/'):
         return JSONResponse({'detail':'Check the authentication details and try again.'},status_code=422,headers={'Cache-Control':'no-store'})
     if request.url.path in {"/api/v1/admin/municipal-officials", "/api/v1/auth/register-local"}:
