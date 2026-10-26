@@ -12,8 +12,13 @@ The repository includes a Render Blueprint (`render.yaml`) for the FastAPI servi
 
 1. In Render, create a new Blueprint instance and connect `SAMahlangu/EcoPulse-AI` on `main`. Render reads `render.yaml` from the repository root.
 2. Enter the requested values for `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY`, and `DATABASE_URL`. Set `CORS_ORIGINS` to the exact Netlify origin (for example, `https://your-site.netlify.app`, with no trailing slash), and `APP_PUBLIC_URL` to that same origin.
-3. Leave `ECOPULSE_LOCAL_DEMO` and `ECOPULSE_LOCAL_PASSWORD_SIGNUP` set to `false`. Do not add service keys or database credentials to Netlify or any `VITE_*` variable.
-4. Wait for the deploy and check `https://<render-service>.onrender.com/api/v1/health`; it should return `{"status":"ok", ...}`.
+3. To send resident email alerts, configure one backend email provider in the Render service environment:
+   - **Gmail SMTP:** set `SMTP_HOST` to `smtp.gmail.com`, `SMTP_PORT` to `465`, `SMTP_USERNAME` to the Gmail address, `SMTP_PASSWORD` to a newly generated Gmail App Password, `SMTP_FROM` to a sender using that address, `SMTP_USE_SSL` to `true`, and `SMTP_TIMEOUT_SECONDS` to `10`.
+   - **Resend:** set `RESEND_API_KEY` and `RESEND_FROM`. Use a sender address on a verified Resend domain. When `RESEND_API_KEY` is non-empty, Resend takes priority over SMTP.
+
+   These are backend-only values; do not add them to Netlify or any `VITE_*` variable. If the deployment already exists, add the selected provider's variables under **Render Dashboard → ecopulse-api → Environment** and redeploy. Without a configured provider, in-app notifications can still be created, but no emails are sent.
+4. Leave `ECOPULSE_LOCAL_DEMO` and `ECOPULSE_LOCAL_PASSWORD_SIGNUP` set to `false`. Do not add service keys or database credentials to Netlify or any `VITE_*` variable.
+5. Wait for the deploy and check `https://<render-service>.onrender.com/api/v1/health`; it should return `{"status":"ok", ...}`.
 
 The Blueprint uses Render's Free plan as requested. Free services can spin down when idle and have limited memory. The API loads its 53 MB YOLO model only when image analysis is first requested; model inference may exceed Free-tier memory. If image analysis fails or the service restarts during inference, upgrade the Render service to a plan with more memory.
 
@@ -32,4 +37,4 @@ The Blueprint uses Render's Free plan as requested. Free services can spin down 
 
 ## Optional backend integrations
 
-Set optional provider variables in Render's environment dashboard only when enabling those integrations. Examples include `GEMINI_API_KEY` for AI-assisted features, and `RESEND_API_KEY` plus `RESEND_FROM` (or the `SMTP_*` settings) for notification email. Keep all provider credentials backend-only.
+Set optional provider variables in Render's environment dashboard only when enabling those integrations. For Gemini-powered AI features, add `GEMINI_API_KEY`; `GEMINI_MODEL` defaults to `gemini-2.5-flash`. For notification email, configure `RESEND_API_KEY` and `RESEND_FROM` (or the `SMTP_*` settings) on the backend. Keep all provider credentials backend-only. The API logs whether a provider is unconfigured, accepts a message, or rejects it; use Resend's dashboard to check final delivery or bounces.

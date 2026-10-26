@@ -27,7 +27,7 @@ Public registration provisions resident accounts only. On first login, a residen
 
 ## Notification email setup
 
-Set `RESEND_API_KEY` and `RESEND_FROM` in `backend/.env`, then restart the API. Use a sender address on a verified Resend domain. Resend takes priority when its API key is set; otherwise the existing `SMTP_*` settings are used. Supabase Auth email configuration is separate from application notifications.
+For local development, set `RESEND_API_KEY` and `RESEND_FROM` in `backend/.env`, then restart the API. Use a sender address on a verified Resend domain. For the deployed API, set both variables in the Render service environment and redeploy; local `.env` values are not deployed. Resend takes priority when its API key is set; otherwise the existing `SMTP_*` settings are used. Supabase Auth email configuration is separate from application notifications.
 
 Incident updates and municipal service alert updates email the resident's account address, respecting their `incident_updates` and `municipal_notices` preferences. Delivery runs in the background; provider failures leave the in-app notification intact. Check API logs for Resend acceptance or HTTP rejection status. Acceptance does not confirm inbox delivery; check the Resend dashboard for delivery/bounce status. These background tasks are not a durable queue and do not retry failed deliveries.
 
