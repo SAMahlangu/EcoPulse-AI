@@ -35,6 +35,7 @@ from .assistant import router as assistant_router
 from .water import router as water_router, validation_error_response as water_validation_error_response
 from .energy import router as energy_router, validation_error_response as energy_validation_error_response
 from .community_map import router as community_map_router
+from .community_resources import router as community_resources_router
 from .security import database_url, local_demo_enabled, optional_current_user, postgres_connection
 from .security_middleware import RequestBodyLimitMiddleware, SecurityHeadersMiddleware
 
@@ -57,10 +58,11 @@ def require_local_demo_mode() -> None:
 async def lifespan(_: FastAPI):
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     with db() as con:
-        con.execute("""CREATE TABLE IF NOT EXISTS incidents(id INTEGER PRIMARY KEY, category TEXT NOT NULL, title TEXT NOT NULL, description TEXT NOT NULL, location TEXT NOT NULL, latitude REAL, longitude REAL, created_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'submitted', public_reference TEXT, submission_key TEXT UNIQUE)""")
+        con.execute("""CREATE TABLE IF NOT EXISTS incidents(id INTEGER PRIMARY KEY, category TEXT NOT NULL, title TEXT NOT NULL, description TEXT NOT NULL, location TEXT NOT NULL, latitude REAL, longitude REAL, created_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'submitted', public_reference TEXT, submission_key TEXT UNIQUE, community_map_consent INTEGER NOT NULL DEFAULT 0)""")
         columns={row[1] for row in con.execute("PRAGMA table_info(incidents)")}
         if "public_reference" not in columns: con.execute("ALTER TABLE incidents ADD COLUMN public_reference TEXT")
         if "submission_key" not in columns: con.execute("ALTER TABLE incidents ADD COLUMN submission_key TEXT")
+        if "community_map_consent" not in columns: con.execute("ALTER TABLE incidents ADD COLUMN community_map_consent INTEGER NOT NULL DEFAULT 0")
         con.execute("""CREATE TABLE IF NOT EXISTS readings(id INTEGER PRIMARY KEY, kind TEXT NOT NULL, previous REAL NOT NULL, current REAL NOT NULL, previous_date TEXT NOT NULL, current_date TEXT NOT NULL, household_size INTEGER, created_at TEXT NOT NULL)""")
     yield
 
@@ -75,6 +77,7 @@ app.include_router(assistant_router)
 app.include_router(water_router)
 app.include_router(energy_router)
 app.include_router(community_map_router)
+app.include_router(community_resources_router)
 origins = [x.strip() for x in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",") if x.strip()]
 # Development URLs may use either loopback hostname, including Vite's fallback
 # and preview ports. Production origins remain explicitly configured.
@@ -135,6 +138,7 @@ class Incident(BaseModel):
     longitude: float | None = Field(default=None, ge=-180, le=180)
     analysis_id: str | None = None
     training_consent: bool = False
+    community_map_consent: bool = False
     submission_key: uuid.UUID | None = None
     municipality_id: uuid.UUID | None = None
 
@@ -259,9 +263,9 @@ async def submit_incident_with_media(request: Request, user: dict[str, Any] | No
                 if analysis['result_metadata'].get('image_digest') != __import__('hashlib').sha256(data).hexdigest():
                     raise HTTPException(422, 'The photo changed after analysis. Analyse it again or continue manually.')
             municipality = resolve_municipality(con, incident.latitude, incident.longitude, incident.municipality_id)
-            row=con.execute("""insert into public.incidents(reporter_id,category,title,description,location,location_text,municipality_id,public_reference,submission_key,ai_suggested_category,resident_confirmed_category,ai_model_name,ai_model_version,training_consent)
-              values(%s,%s,%s,%s,case when %s::double precision is null or %s::double precision is null then null else extensions.st_setsrid(extensions.st_makepoint(%s,%s),4326)::extensions.geography end,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-              returning id::text,status,created_at,public_reference""",(user["id"],incident.category,incident.title,incident.description,incident.longitude,incident.latitude,incident.longitude,incident.latitude,incident.location,municipality,reference,incident.submission_key,analysis["suggested_category"] if analysis else None,incident.category,analysis["model_name"] if analysis else None,analysis["model_version"] if analysis else None,incident.training_consent)).fetchone()
+            row=con.execute("""insert into public.incidents(reporter_id,category,title,description,location,location_text,municipality_id,public_reference,submission_key,ai_suggested_category,resident_confirmed_category,ai_model_name,ai_model_version,training_consent,community_map_consent)
+              values(%s,%s,%s,%s,case when %s::double precision is null or %s::double precision is null then null else extensions.st_setsrid(extensions.st_makepoint(%s,%s),4326)::extensions.geography end,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+              returning id::text,status,created_at,public_reference""",(user["id"],incident.category,incident.title,incident.description,incident.longitude,incident.latitude,incident.longitude,incident.latitude,incident.location,municipality,reference,incident.submission_key,analysis["suggested_category"] if analysis else None,incident.category,analysis["model_name"] if analysis else None,analysis["model_version"] if analysis else None,incident.training_consent,incident.community_map_consent)).fetchone()
             con.execute("insert into public.incident_media(incident_id,owner_id,storage_path,content_type) values(%s,%s,%s,'image/jpeg')",(row["id"],user["id"],object_path))
             if analysis and analysis['result_metadata'].get('detections'):
                 from PIL import ImageDraw
@@ -605,13 +609,13 @@ def create_incident(incident: Incident, user: dict[str, Any] | None = Depends(op
                     analysis=con.execute("select id,model_name,model_version,suggested_category from public.incident_ai_analyses where id=%s and requester_id=%s",(analysis_id,user["id"])).fetchone()
                     if not analysis: raise HTTPException(status_code=403,detail="That AI analysis does not belong to your account.")
                 reference="ECO-"+str(datetime.now(timezone.utc).year)+"-"+uuid.uuid4().hex[:16].upper()
-                row = con.execute("""insert into public.incidents(reporter_id,category,title,description,location,location_text,municipality_id,public_reference,submission_key,ai_suggested_category,resident_confirmed_category,ai_model_name,ai_model_version,training_consent)
-                    values(%s,%s,%s,%s,case when %s::double precision is null or %s::double precision is null then null else extensions.st_setsrid(extensions.st_makepoint(%s,%s),4326)::extensions.geography end,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                row = con.execute("""insert into public.incidents(reporter_id,category,title,description,location,location_text,municipality_id,public_reference,submission_key,ai_suggested_category,resident_confirmed_category,ai_model_name,ai_model_version,training_consent,community_map_consent)
+                    values(%s,%s,%s,%s,case when %s::double precision is null or %s::double precision is null then null else extensions.st_setsrid(extensions.st_makepoint(%s,%s),4326)::extensions.geography end,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     returning id::text,status,created_at,public_reference""", (user["id"],incident.category,incident.title,incident.description,
                     incident.longitude,incident.latitude,incident.longitude,incident.latitude,incident.location,municipality,reference,
                     incident.submission_key,
                     analysis["suggested_category"] if analysis else None,incident.category,analysis["model_name"] if analysis else None,
-                    analysis["model_version"] if analysis else None,False)).fetchone()
+                    analysis["model_version"] if analysis else None,incident.training_consent,incident.community_map_consent)).fetchone()
                 con.execute("insert into public.incident_updates(incident_id,message,official,internal) values(%s,'Report submitted.',false,false)",(row["id"],))
                 if analysis: con.execute("update public.incident_ai_analyses set incident_id=%s where id=%s",(row["id"],analysis["id"]))
                 if municipality:
@@ -631,7 +635,7 @@ def create_incident(incident: Incident, user: dict[str, Any] | None = Depends(op
         if incident.submission_key:
             existing=con.execute("select id,status,created_at,public_reference from incidents where submission_key=?",(str(incident.submission_key),)).fetchone()
             if existing:return {"id":existing["id"],"reference":existing["public_reference"],"category":incident.category,"status":existing["status"],"created_at":existing["created_at"],"classification":"unverified resident report"}
-        cur=con.execute("INSERT INTO incidents(category,title,description,location,latitude,longitude,created_at,public_reference,submission_key) VALUES(?,?,?,?,?,?,?,?,?)",(incident.category,incident.title,incident.description,incident.location,incident.latitude,incident.longitude,now,reference,str(incident.submission_key) if incident.submission_key else None))
+        cur=con.execute("INSERT INTO incidents(category,title,description,location,latitude,longitude,created_at,public_reference,submission_key,community_map_consent) VALUES(?,?,?,?,?,?,?,?,?,?)",(incident.category,incident.title,incident.description,incident.location,incident.latitude,incident.longitude,now,reference,str(incident.submission_key) if incident.submission_key else None,int(incident.community_map_consent)))
     return {"id":cur.lastrowid,"reference":reference,"category":incident.category,"status":"submitted","created_at":now,"classification":"unverified resident report"}
 
 @app.get("/api/v1/incidents")
@@ -643,13 +647,13 @@ def list_incidents(limit: int = Query(50,ge=1,le=100), offset: int = Query(0,ge=
             with postgres_connection() as con:
                 rows=con.execute("""select id::text,public_reference,category,title,description,location_text as location,
                     extensions.st_y(location::extensions.geometry) as latitude,extensions.st_x(location::extensions.geometry) as longitude,
-                    created_at,status,(select name from public.municipalities m where m.id=municipality_id) as municipality_name,(select department_name from public.municipal_departments d where d.id=department_id) as department_name from public.incidents where reporter_id=%s order by created_at desc limit %s offset %s""",
+                    created_at,status,community_map_consent,(select name from public.municipalities m where m.id=municipality_id) as municipality_name,(select department_name from public.municipal_departments d where d.id=department_id) as department_name from public.incidents where reporter_id=%s order by created_at desc limit %s offset %s""",
                     (user["id"],limit,offset)).fetchall()
         except Exception as exc:
             raise HTTPException(503,"Could not load your incident history.") from exc
         return {"items":[dict(row) for row in rows],"limit":limit,"offset":offset}
     require_local_demo_mode()
-    with db() as con: rows=con.execute("SELECT id,public_reference,category,title,description,location,latitude,longitude,created_at,status FROM incidents ORDER BY id DESC LIMIT ? OFFSET ?",(limit,offset)).fetchall()
+    with db() as con: rows=con.execute("SELECT id,public_reference,category,title,description,location,latitude,longitude,created_at,status,community_map_consent FROM incidents ORDER BY id DESC LIMIT ? OFFSET ?",(limit,offset)).fetchall()
     return {"items":[dict(r) for r in rows],"limit":limit,"offset":offset}
 
 @app.get("/api/v1/incidents/{incident_id}")

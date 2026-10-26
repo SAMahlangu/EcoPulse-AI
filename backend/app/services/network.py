@@ -29,7 +29,8 @@ def allowed_hosts() -> set[str]:
              'archive-api.open-meteo.com', 'geocoding-api.open-meteo.com',
              'customer-api.open-meteo.com', 'customer-archive-api.open-meteo.com',
              'api.met.no',
-             'nominatim.openstreetmap.org'}
+             'nominatim.openstreetmap.org', 'overpass-api.de', 'overpass.private.coffee',
+             'hips-gis.health.gov.za'}
     for setting in ('SUPABASE_URL', 'DATABASE_URL'):
         host = urlsplit(os.getenv(setting, '')).hostname
         if host:
