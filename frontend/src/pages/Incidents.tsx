@@ -19,7 +19,7 @@ const categories = [
 type Detection = {class_name:string;label:string;category:string;confidence:number;bounding_box:number[]};
 type Analysis = { issue_title?:string; description?:string; annotated_image?:string; detections?:Detection[]; requires_manual_review?:boolean; resident_reported_information?:string[]; assumptions?:string[]; analysis_id?: string; available: boolean; category?: string; subcategory?: string; observations?: string[]; explanation?: string; confidence?: number | null; severity?: string; recommended_next_steps?: string[]; reason?: string };
 type Created = { id: string | number; reference?: string; category: string; status: string; created_at: string };
-type ResolvedPlace = { location:string; province:{id:string;name:string}|null; municipality:{id:string;name:string;province:string}|null; source:string };
+type ResolvedPlace = { location:string; province:{id:string;name:string}|null; municipality:{id:string;name:string;province:string}|null; source:string|null };
 
 export function Incidents() {
   const location = useLocation();

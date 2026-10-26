@@ -7,7 +7,7 @@ import { useAuth } from '../services/auth';
 import { CommunitySelect, MunicipalitySelect, ProvinceSelect, type CommunityOption } from '../components/geography/GeographySelects';
 
 type Setup = { profile: { province_id: string | null; province: string | null; municipality_id: string | null; community_id: string | null; suburb: string | null; notification_preferences: Record<string, boolean> } | null };
-type ResolvedArea = { locality: string | null; province: { id: string; name: string } | null; municipality: { id: string; name: string; province: string } | null; source: string | null };
+type ResolvedArea = { locality: string | null; province: { id: string; name: string } | null; municipality: { id: string; name: string; province: string } | null; source: string | null; boundary_source: string | null; country_code: string | null };
 function normalizeAreaName(value: string) { return value.normalize('NFKC').trim().toLocaleLowerCase('en-ZA'); }
 
 export function ResidentOnboarding() {
@@ -32,9 +32,13 @@ export function ResidentOnboarding() {
       setMunicipalityId(area.municipality?.id ?? '');
       setCommunityId('');
       setSuburb(locality);
-      setLocationSource(area.source ?? '');
+      setLocationSource([...new Set([area.source, area.boundary_source].filter(Boolean))].join(' · '));
       if (!area.province?.id || !area.municipality?.id) {
-        setLocationMessage('Your location could not be matched to a South African municipality. Choose your area manually below.');
+        setLocationMessage(area.country_code && area.country_code.toLowerCase() !== 'za'
+          ? 'This location appears to be outside South Africa. Choose your South African area manually below.'
+          : area.province?.name
+            ? `We found ${area.province.name}, but could not confirm the municipality. Please choose it below.`
+            : 'We could not confirm the South African municipality for this location. Choose your area manually below.');
         return;
       }
 
@@ -50,8 +54,8 @@ export function ResidentOnboarding() {
       }
 
       setLocationMessage(locality
-        ? `Suggested ${locality}, ${area.province.name}. Review the area before saving.`
-        : `Found ${area.municipality.name}, ${area.province.name}. Add your suburb below if you want it included.`);
+        ? `Suggested ${locality} in ${area.municipality.name}, ${area.province.name}. Review the area before saving.`
+        : `Found ${area.municipality.name}, ${area.province.name}. Enter your community or suburb below to finish.`);
     } catch {
       setLocationMessage('We could not look up your current area. Check your connection or enter it manually below.');
     } finally {
@@ -80,7 +84,7 @@ export function ResidentOnboarding() {
   if (query.isPending) return <div className="content"><div className="weather-skeleton skeleton"/></div>;
   if (query.isError) return <div className="content"><section className="empty-card"><h2>Community setup is unavailable</h2><p>{(query.error as Error).message}</p><p>Ask your platform administrator to add municipalities and communities, then try again.</p></section></div>;
   return <div className="content onboarding-content"><div className="page-heading"><div><p className="eyebrow">FIRST-TIME SETUP</p><h1>Your community</h1><p className="muted">Choose where you live and the updates you want. You can change these preferences later.</p></div></div><form className="panel onboarding-panel" onSubmit={submit}>
-    <section className="onboarding-location" aria-label="Find your community automatically"><div><b>Fill this in from your current location</b><p>We’ll suggest your province, municipality, and nearby suburb. You can review and change every field before saving.</p></div><button type="button" className="button-outline" disabled={locationBusy} onClick={locateFromDevice}><LocateFixed size={16}/>{locationBusy ? 'Finding your area…' : 'Use my location'}</button>{locationMessage && <p className="onboarding-location-status" role="status" aria-live="polite">{locationMessage}</p>}{locationSource === 'OpenStreetMap Nominatim' && <small>Nearby place names © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap contributors</a>.</small>}<small>Your saved profile keeps the area you choose, not your GPS coordinates.</small></section>
+    <section className="onboarding-location" aria-label="Find your community automatically"><div><b>Fill this in from your current location</b><p>We’ll suggest your province, municipality, and nearby suburb. You can review and change every field before saving.</p></div><button type="button" className="button-outline" disabled={locationBusy} onClick={locateFromDevice}><LocateFixed size={16}/>{locationBusy ? 'Finding your area…' : 'Use my location'}</button>{locationMessage && <p className="onboarding-location-status" role="status" aria-live="polite">{locationMessage}</p>}{locationSource?.includes('OpenStreetMap Nominatim') && <small>Nearby place names © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap contributors</a>.</small>}{locationSource?.includes('Municipal Demarcation Board') && <small>Municipal boundaries: <a href="https://www.demarcation.org.za/" target="_blank" rel="noreferrer">Municipal Demarcation Board</a>.</small>}<small>Your saved profile keeps the area you choose, not your GPS coordinates.</small></section>
     <div className="onboarding-step"><span>1</span><div><h2>Choose a province</h2><p>Your selection helps us show the right local information.</p></div></div><label>Province<ProvinceSelect value={provinceId} onChange={id => { setProvinceId(id); setMunicipalityId(''); setCommunityId(''); setSuburb(''); }}/></label>
     <div className="onboarding-step"><span>2</span><div><h2>Choose a municipality</h2><p>Search municipalities in your province.</p></div></div><label>Municipality<MunicipalitySelect provinceId={provinceId} value={municipalityId} resetOnProvinceChange={false} onChange={id => { setMunicipalityId(id); setCommunityId(''); setSuburb(''); }}/></label>
     <div className="onboarding-step"><span>3</span><div><h2>Add your community or suburb</h2><p>Choose a listed community or enter your suburb if it is not listed.</p></div></div><label>Community (optional)<CommunitySelect municipalityId={municipalityId} value={communityId} onChange={id => setCommunityId(id)}/></label><label>Community or suburb<input required minLength={2} maxLength={120} value={suburb} onChange={e => setSuburb(e.target.value)} placeholder="For example, Hatfield"/><small><MapPin size={13}/> Your exact street address is not needed.</small></label>

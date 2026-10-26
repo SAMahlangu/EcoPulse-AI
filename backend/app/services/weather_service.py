@@ -25,6 +25,7 @@ API_KEY = os.getenv("OPEN_METEO_API_KEY", "").strip()
 _cache: dict[str, tuple[float, Any]] = {}
 _request_tasks: dict[str, asyncio.Task[dict[str, Any]]] = {}
 _reverse_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+_reverse_request_tasks: dict[str, asyncio.Task[dict[str, Any]]] = {}
 _reverse_request_lock = asyncio.Lock()
 _last_reverse_request = 0.0
 log = logging.getLogger(__name__)
@@ -308,14 +309,33 @@ async def municipality_coordinates(name: str, province: str) -> dict[str, float]
 
 async def reverse_location(latitude: float, longitude: float) -> dict[str, Any]:
     """Return a privacy-conscious nearby label and address fields for a map point."""
-    global _last_reverse_request
     # Four decimals is roughly an 11 m grid: close enough for a nearby street
     # label, while avoiding a cache of exact GPS coordinates.
     lat, lon = round(latitude, 4), round(longitude, 4)
     key = f"{lat:.4f},{lon:.4f}"
     cached = _reverse_cache.get(key)
     if cached and time.monotonic() - cached[0] < 86400:
-        return cached[1]
+        return dict(cached[1])
+    task = _reverse_request_tasks.get(key)
+    if task is None:
+        # A caller can stop waiting while the upstream request is still being
+        # retried. Keep the pacing lock in this shared task until it finishes.
+        task = asyncio.create_task(_reverse_location_uncached(lat, lon, key))
+        _reverse_request_tasks[key] = task
+
+        def discard_task(completed: asyncio.Task[dict[str, Any]]) -> None:
+            if _reverse_request_tasks.get(key) is completed:
+                _reverse_request_tasks.pop(key, None)
+            # Retrieve failures even when every waiting caller timed out.
+            if not completed.cancelled():
+                completed.exception()
+
+        task.add_done_callback(discard_task)
+    return dict(await asyncio.shield(task))
+
+
+async def _reverse_location_uncached(lat: float, lon: float, key: str) -> dict[str, Any]:
+    global _last_reverse_request
     async with _reverse_request_lock:
         cached = _reverse_cache.get(key)
         if cached and time.monotonic() - cached[0] < 86400:

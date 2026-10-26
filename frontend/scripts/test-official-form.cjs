@@ -20,6 +20,7 @@ const source=ts.transpileModule(fs.readFileSync('src/pages/PortalDashboards.tsx'
 vm.runInNewContext(source,{React:react,exports:mod.exports,require:name=>{
  if(name==='react')return react;
  if(name==='@tanstack/react-query')return query;
+ if(name==='../services/auth')return {useAuth:()=>({user:{id:'fixture-admin',role:'admin'}})};
  if(name==='../services/api')return {postJson:async(path,body)=>{posted.push({path,body});return {id:'new-official'};}};
  if(name.includes('GeographySelects'))return {MunicipalitySelect:'MunicipalitySelect',ProvinceSelect:'ProvinceSelect'};
  return {};

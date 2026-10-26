@@ -4,6 +4,12 @@ Location dropdowns use public.provinces, public.municipalities and public.commun
 
 GET /api/v1/locations/provinces returns province IDs/names/codes. GET /api/v1/locations/municipalities supports province_id or province name, optional search/type filters and pagination. The shared searchable dropdown loads every page for the selected province. Changing province clears municipality and community selection. Communities are scoped to canonical municipality UUIDs. Inclusion in the reference list does not assert current municipal activity or a government partnership.
 
+## Resident location autofill
+
+Use my location calls GET /api/v1/locations/reverse with the browser's position. Nearby street/suburb labels come from OpenStreetMap Nominatim; its lookup has a six-second waiting limit before the municipality fallback proceeds. Existing database polygons and exact municipality names are tried first. When those cannot identify a municipality, the backend queries the MDB 2026 reference layer used by the directory and maps one unique local/metro result to existing municipality/province UUIDs. Ambiguous or unavailable results leave the fields editable. Missing data does not imply that a resident is outside South Africa, and a municipality boundary never supplies an invented suburb.
+
+Provider coordinates are rounded to four decimals. Successful MDB lookups are cached in memory for 24 hours; failed or ambiguous results are not cached. The form saves the reviewed area and notification preferences without saving device coordinates. Nominatim requests remain serialized and paced when a caller stops waiting. The shared application DNS fallback supports the MDB host while retaining HTTPS hostname and certificate verification.
+
 ## Direct account creation
 
 The Admin municipality page contains one Add municipal official form: full name, email, password, password confirmation, province and municipality. POST /api/v1/admin/municipal-officials is admin-only and accepts full_name, email, password, province_id and municipality_id. It validates the municipality/province pairing, rejects existing email accounts, creates a confirmed Supabase password account using the server-only admin API, and saves the municipal profile, active membership and audit entry. There is no invitation email or acceptance step for newly created officials. Passwords go only to Supabase Auth, not profile/membership/audit storage or API responses; password validation errors also omit the submitted input. Existing accounts and their roles are not overwritten.

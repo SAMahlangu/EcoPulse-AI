@@ -5,8 +5,8 @@ EcoPulse is a responsive community resilience platform with React + TypeScript, 
 ## Run locally
 
 1. Install Node.js 20+ and Python 3.11+.
-2. Copy `.env.example` to `frontend/.env.local` and `backend/.env`.
-3. Install frontend packages in `frontend/` with `npm install`.
+2. Copy `frontend/.env.example` to `frontend/.env.local` and `backend/.env.example` to `backend/.env`. Fill in the Supabase settings; keep server credentials in the backend file only.
+3. Install frontend packages in `frontend/` with `npm ci` using the committed lockfile.
 4. Create a Python virtual environment in `backend/`, then run `pip install -r requirements.txt`.
 5. Start the API in `backend/` with `uvicorn app.main:app --reload` and the UI in `frontend/` with `npm run dev`.
 6. Open `http://localhost:5173`; API documentation is at `http://localhost:8000/docs`.
@@ -17,13 +17,15 @@ The sample keeps local SQLite demo mode off. To intentionally run an isolated de
 
 Configure `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in the frontend. Configure `SUPABASE_URL`, `DATABASE_URL`, and a supported JWT verification setup in the backend. Keep `SUPABASE_SECRET_KEY` backend-only; it is required for invitation email and private incident media. Legacy `anon` and `service_role` variable names remain as migration fallbacks. Set Supabase Auth email confirmation and redirect URLs for the deployed UI.
 
-Review and apply migrations in order: `001_resident_portal.sql`, `002_climate_intelligence.sql`, `003_multi_role_platform.sql`, and `004_incident_reporting_onboarding.sql`. Apply first to a development Supabase project, then verify the RLS policies and Auth/Storage configuration before production. Migration 004 adds the private `incident-media` Storage bucket, report references and AI provenance, plus resident onboarding fields. It is additive; do not apply against an unreviewed production schema.
+Review every SQL file in `database/migrations/`, from `001_resident_portal.sql` through `016_community_resources_and_sharing.sql`, in filename order. Both files beginning with `010_` and both beginning with `011_` are required. After the geography schema is present, run `backend/venv/Scripts/python.exe database/seed_sa_geography.py` from the repository root to populate the municipality reference directory. Apply first to a development Supabase project and verify Auth, Storage, and RLS configuration. Existing installations should review and apply only missing migrations; no migration is applied automatically when the API starts.
 
 ## Deployment
 
 Render and Netlify deployment configuration and environment-variable setup are documented in [docs/deployment.md](docs/deployment.md).
 
-Public registration provisions resident accounts only. On first login, a resident selects an existing province and municipality, enters a community/suburb, and chooses notification preferences. A trusted admin invitation grants municipal membership; admin role assignment remains server-side.
+For the evaluation links, demonstration steps, and verified scope, see [SUBMISSION.md](SUBMISSION.md).
+
+Public registration provisions resident accounts only. On first login, a resident can use their location or select an existing province and municipality, enter a community/suburb, and choose notification preferences. The administrator's Add municipal official form creates a municipal account and membership; existing invitation acceptance remains supported. Role assignment stays server-side.
 
 ## Notification email setup
 
@@ -50,9 +52,9 @@ The supplied custom YOLO model at `backend/models/best.pt` now powers infrastruc
 
 ## Tests and current limits
 
-Run backend checks from the repository root with `PYTHONPATH=.` and `backend/venv/Scripts/python.exe -m pytest backend/tests -q`. Image preprocessing tests require Pillow; multipart routes require `python-multipart`; both are declared in `backend/requirements.txt`. Frontend type checking uses `frontend/node_modules/.bin/tsc -b`.
+Run backend checks from the repository root with `backend/venv/Scripts/python.exe -m pytest backend/tests -q`. Image preprocessing tests require Pillow; multipart routes require `python-multipart`; both are declared in `backend/requirements.txt`. From `frontend/`, run `npm run typecheck`, `npm run test:checks`, and `npm run build`. Release builds require HTTPS API and Supabase URLs; keep local HTTP settings for development. Browser checks and their prerequisites are listed in [SUBMISSION.md](SUBMISSION.md).
 
-Supabase migration 008 is applied and department/API/RLS isolation has been verified using rollback-only fixtures. The supplied custom YOLO weights load successfully; representative-image accuracy is not yet evaluated. Privacy/terms pages remain drafts; some community-resources, household management, and advanced analytics sections still depend on future data integration. SQLite mode is isolated local demo storage and is not appropriate for real resident records or public deployment.
+Implemented modules include the community resources map and consented approximate issue pins, household energy intelligence, water consumption simulation, climate guidance, and EcoMove demonstration routes. Resource coverage depends on the external providers and selected area. Transport simulation is labelled and does not provide live vehicle tracking. The supplied custom YOLO weights load, but representative-image accuracy has not been evaluated. Privacy/terms pages remain drafts; the existing session and privileged-MFA limitations are recorded in [docs/security-baseline.md](docs/security-baseline.md). This submission demonstrates the application and does not certify it for production use. SQLite mode is isolated local demo storage and is not suitable for real resident records.
 
 Weather uses Open-Meteo and transparent rule-based screening; it is not emergency guidance. Keep `SUPABASE_SECRET_KEY` and the legacy `SUPABASE_SERVICE_ROLE_KEY` out of frontend configuration and Git.
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 import hashlib
@@ -18,7 +19,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, R
 from pydantic import BaseModel, Field, SecretStr
 from starlette.concurrency import run_in_threadpool
 
-from .services import network, weather_service
+from .services import municipality_boundaries, network, weather_service
 from .services.supabase_keys import supabase_secret_headers, supabase_secret_key
 from .security import current_user, postgres_connection, require_roles
 from .email_notifications import send_user_notification_email
@@ -170,15 +171,21 @@ async def reverse_geocode_location(
     """Resolve a selected point to a nearby label and canonical SA geography."""
     place: dict[str, Any] = {}
     try:
-        place = await weather_service.reverse_location(latitude, longitude)
-    except Exception:
+        # Nearby street/suburb names are helpful, but should not hold up the
+        # official municipality fallback when the label provider is slow.
+        place = await asyncio.wait_for(
+            weather_service.reverse_location(latitude, longitude), timeout=6,
+        )
+    except Exception as exc:
         # A location label provider can be unavailable while database boundaries
         # still identify the responsible municipality and province.
-        pass
+        log.warning("Reverse geocoding provider unavailable (%s)", type(exc).__name__)
 
     municipality = None
     province = None
-    if place.get("country_code") in (None, "za"):
+    official_province = None
+    country_code = (place.get("country_code") or "").casefold() or None
+    if country_code in (None, "za"):
         try:
             matches = _execute(
                 """select m.id::text,m.name,m.province_id::text,p.name as province
@@ -191,6 +198,7 @@ async def reverse_geocode_location(
             )
             if len(matches) == 1:
                 municipality = dict(matches[0])
+                place["boundary_source"] = "Municipality boundary data"
         except HTTPException:
             pass
 
@@ -232,13 +240,43 @@ async def reverse_geocode_location(
                 except HTTPException:
                     pass
 
+        # Official MDB polygons cover municipalities even when imported
+        # PostGIS boundaries are missing and the place-name provider is down.
+        if municipality is None:
+            try:
+                official_area = await municipality_boundaries.municipality_at_point(
+                    latitude, longitude,
+                )
+            except Exception as exc:
+                log.warning("Official municipal boundary lookup unavailable (%s)", type(exc).__name__)
+                official_area = None
+            if official_area:
+                official_province = official_area["province"]
+                country_code = "za"
+                place["boundary_source"] = official_area["source"]
+                try:
+                    rows = _execute(
+                        """select m.id::text,m.name,m.province_id::text,p.name as province
+                           from public.municipalities m join public.provinces p on p.id=m.province_id
+                           where m.is_demonstration is false
+                             and m.municipality_type in ('local','metropolitan')
+                             and lower(p.name)=lower(%s)""",
+                        (official_area["province"],),
+                    )
+                    key = _municipality_key(official_area["name"])
+                    matches = [row for row in rows if _municipality_key(row["name"]) == key]
+                    if len(matches) == 1:
+                        municipality = dict(matches[0])
+                except HTTPException:
+                    pass
+
     if municipality:
         province = {"id": municipality["province_id"], "name": municipality["province"]}
-    elif place.get("province"):
+    elif country_code in (None, "za") and (place.get("province") or official_province):
         try:
             row = _execute(
                 "select id::text,name from public.provinces where lower(name)=lower(%s)",
-                (place["province"],), fetch="one",
+                (official_province or place.get("province"),), fetch="one",
             )
             if row:
                 province = dict(row)
@@ -250,7 +288,9 @@ async def reverse_geocode_location(
         "locality": place.get("locality"),
         "province": province,
         "municipality": municipality,
-        "source": place.get("source") if place.get("label") else "Municipality boundary data",
+        "source": place.get("source") if place.get("label") else place.get("boundary_source"),
+        "boundary_source": place.get("boundary_source"),
+        "country_code": country_code,
     }
 
 

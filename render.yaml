@@ -16,6 +16,8 @@ services:
         value: "false"
       - key: ECOPULSE_LOCAL_PASSWORD_SIGNUP
         value: "false"
+      - key: ECOPULSE_DNS_FALLBACK
+        value: "true"
       - key: YOLO_MODEL_PATH
         value: models/best.pt
       - key: SUPABASE_URL
