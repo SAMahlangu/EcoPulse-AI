@@ -41,12 +41,12 @@ export function ProvinceSelect({ value, onChange, disabled = false, required = t
   </>;
 }
 
-export function MunicipalitySelect({ provinceId, value, onChange, disabled = false, required = true, infrastructure = false }: SelectProps & { provinceId: string; infrastructure?: boolean }) {
+export function MunicipalitySelect({ provinceId, value, onChange, disabled = false, required = true, infrastructure = false, resetOnProvinceChange = true }: SelectProps & { provinceId: string; infrastructure?: boolean; resetOnProvinceChange?: boolean }) {
   const [search, setSearch] = useState('');
   const [previousProvince, setPreviousProvince] = useState(provinceId);
   useEffect(() => {
-    if (previousProvince !== provinceId) { setSearch(''); onChange(''); setPreviousProvince(provinceId); }
-  }, [provinceId, previousProvince, onChange]);
+    if (previousProvince !== provinceId) { setSearch(''); if (resetOnProvinceChange) onChange(''); setPreviousProvince(provinceId); }
+  }, [provinceId, previousProvince, onChange, resetOnProvinceChange]);
   const query = useQuery({
     queryKey: ['locations', 'municipalities', provinceId, 'canonical-all'],
     queryFn: async () => {
