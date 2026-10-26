@@ -31,6 +31,7 @@ from .auth_gateway import router as auth_gateway_router
 from .ecomove import router as ecomove_router
 from .service_alerts import router as service_alerts_router
 from .assistant import router as assistant_router
+from .community_map import router as community_map_router
 from .security import database_url, local_demo_enabled, optional_current_user, postgres_connection
 from .security_middleware import RequestBodyLimitMiddleware, SecurityHeadersMiddleware
 
@@ -67,6 +68,7 @@ app.include_router(auth_gateway_router)
 app.include_router(ecomove_router)
 app.include_router(service_alerts_router)
 app.include_router(assistant_router)
+app.include_router(community_map_router)
 origins = [x.strip() for x in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",") if x.strip()]
 # Development URLs may use either loopback hostname, including Vite's fallback
 # and preview ports. Production origins remain explicitly configured.
