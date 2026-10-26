@@ -38,3 +38,5 @@ The Blueprint uses Render's Free plan as requested. Free services can spin down 
 ## Optional backend integrations
 
 Set optional provider variables in Render's environment dashboard only when enabling those integrations. For Gemini-powered AI features, add `GEMINI_API_KEY`; `GEMINI_MODEL` defaults to `gemini-2.5-flash`. For notification email, configure `RESEND_API_KEY` and `RESEND_FROM` (or the `SMTP_*` settings) on the backend. Keep all provider credentials backend-only. The API logs whether a provider is unconfigured, accepts a message, or rejects it; use Resend's dashboard to check final delivery or bounces.
+
+After the API is deployed with email settings, sign in as a resident and use **Profile & settings → Test email delivery** to send a test only to that account. The test respects the municipal-notices preference and can be sent once per minute. Provider acceptance confirms submission to the provider, not inbox delivery.

@@ -5,13 +5,21 @@ import logging
 import os
 import smtplib
 import ssl
+import time
+from threading import Lock
 from email.message import EmailMessage
+from typing import Any, Literal
 
 import httpx
+from fastapi import APIRouter, Depends, HTTPException
 
-from .security import postgres_connection
+from .security import postgres_connection, require_roles
 
 log = logging.getLogger(__name__)
+router = APIRouter(prefix="/api/v1/email", tags=["email"])
+_test_email_attempts: dict[str, float] = {}
+_test_email_attempts_lock = Lock()
+DeliveryStatus = Literal["accepted", "not_configured", "no_recipient", "opted_out", "rejected", "failed"]
 
 
 def _smtp_login(server, username: str, password: str) -> None:
@@ -25,7 +33,7 @@ def _smtp_login(server, username: str, password: str) -> None:
         server.login(username, password, initial_response_ok=False)
 
 
-def send_user_notification_email(user_id: str, subject: str, body: str, preference: str) -> None:
+def send_user_notification_email(user_id: str, subject: str, body: str, preference: str) -> DeliveryStatus:
     """Send an email when a provider is configured and the resident opted in.
 
     This runs as a FastAPI background task. Email addresses and SMTP details
@@ -36,7 +44,7 @@ def send_user_notification_email(user_id: str, subject: str, body: str, preferen
     sender = os.getenv("RESEND_FROM", "").strip() if api_key else os.getenv("SMTP_FROM", "").strip()
     if not sender or (not api_key and not host):
         log.warning("Email provider is not configured; set RESEND_API_KEY and RESEND_FROM, or SMTP_HOST and SMTP_FROM")
-        return
+        return "not_configured"
 
     try:
         with postgres_connection() as con:
@@ -44,10 +52,10 @@ def send_user_notification_email(user_id: str, subject: str, body: str, preferen
               from auth.users u join public.profiles p on p.id=u.id
               where u.id=%s and p.role='resident' and coalesce(p.account_status,'active')='active'""", (user_id,)).fetchone()
         if not recipient or not recipient["email"]:
-            return
+            return "no_recipient"
         preferences = recipient["notification_preferences"] or {}
         if preferences.get(preference, True) is False:
-            return
+            return "opted_out"
 
         text = f"{body.strip()}\n\nSign in to EcoPulse to view your updates."
         if api_key:
@@ -60,9 +68,9 @@ def send_user_notification_email(user_id: str, subject: str, body: str, preferen
             if not response.is_success:
                 # Provider response bodies can contain personal data; log only status.
                 log.error("Resend rejected email notification (HTTP %s)", response.status_code)
-                return
+                return "rejected"
             log.info("Resend accepted email notification")
-            return
+            return "accepted"
 
         message = EmailMessage()
         message["Subject"] = subject[:180]
@@ -79,7 +87,7 @@ def send_user_notification_email(user_id: str, subject: str, body: str, preferen
             with smtplib.SMTP_SSL(host, port, timeout=timeout, context=context) as server:
                 if username:
                     _smtp_login(server, username, password)
-                server.send_message(message)
+                refused = server.send_message(message)
         else:
             with smtplib.SMTP(host, port, timeout=timeout) as server:
                 server.ehlo()
@@ -87,10 +95,47 @@ def send_user_notification_email(user_id: str, subject: str, body: str, preferen
                 server.ehlo()
                 if username:
                     _smtp_login(server, username, password)
-                server.send_message(message)
+                refused = server.send_message(message)
+        if refused:
+            log.error("SMTP refused email notification for %s recipient(s)", len(refused))
+            return "rejected"
         log.info("SMTP accepted email notification")
+        return "accepted"
     except smtplib.SMTPAuthenticationError as error:
         log.error("Email notification authentication rejected (SMTP %s)", error.smtp_code)
+        return "failed"
     except Exception as error:
         # Delivery failure must not undo the in-app notification or API update.
         log.error("Email notification delivery failed (%s)", type(error).__name__)
+        return "failed"
+
+
+@router.post("/test")
+def send_test_email(user: dict[str, Any] = Depends(require_roles("resident"))):
+    now = time.monotonic()
+    with _test_email_attempts_lock:
+        previous = _test_email_attempts.get(user["id"])
+        if previous is not None and now - previous < 60:
+            retry_after = max(1, int(60 - (now - previous)))
+            raise HTTPException(
+                429,
+                "Please wait before sending another test email.",
+                headers={"Retry-After": str(retry_after)},
+            )
+        _test_email_attempts[user["id"]] = now
+
+    status = send_user_notification_email(
+        user["id"],
+        "EcoPulse email delivery test",
+        "This is a test of EcoPulse email notifications requested from your account.",
+        "municipal_notices",
+    )
+    if status == "accepted":
+        return {"status": status, "message": "The email provider accepted the test message. Check your inbox and spam folder."}
+    if status == "not_configured":
+        raise HTTPException(503, "Email delivery is not configured on the server.")
+    if status == "no_recipient":
+        raise HTTPException(409, "No email address is available for this resident account.")
+    if status == "opted_out":
+        raise HTTPException(409, "Enable municipal notices in your notification preferences before sending a test.")
+    raise HTTPException(502, "The configured email provider could not accept the test message. Check server logs for details.")

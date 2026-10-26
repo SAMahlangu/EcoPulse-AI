@@ -31,6 +31,8 @@ For local development, set `RESEND_API_KEY` and `RESEND_FROM` in `backend/.env`,
 
 Incident updates and municipal service alert updates email the resident's account address, respecting their `incident_updates` and `municipal_notices` preferences. Delivery runs in the background; provider failures leave the in-app notification intact. Check API logs for Resend acceptance or HTTP rejection status. Acceptance does not confirm inbox delivery; check the Resend dashboard for delivery/bounce status. These background tasks are not a durable queue and do not retry failed deliveries.
 
+Residents can use **Profile & settings → Test email delivery** to send one diagnostic message to their own account address. The endpoint requires resident authentication, respects the municipal-notices opt-out, and is limited to one test per minute. An accepted response means the provider accepted the message; check the inbox, spam folder, or provider delivery logs for final delivery.
+
 ## Incident image analysis
 
 Residents can take or select a JPEG, PNG, or WebP photo, optionally request analysis, review or change the suggested category, and submit with or without a photo. FastAPI checks the decoded image, restricts it to 10 MB and 25 megapixels, fixes orientation, converts to RGB, resizes it, and strips metadata before inference/storage. Supabase Storage is private; the API issues short-lived signed links only after checking the resident or municipal incident scope. The optional model-training consent is false by default and is stored separately from AI and resident-confirmed labels.

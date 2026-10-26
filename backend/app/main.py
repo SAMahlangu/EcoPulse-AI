@@ -30,6 +30,7 @@ from .infrastructure import router as infrastructure_router
 from .auth_gateway import router as auth_gateway_router
 from .ecomove import router as ecomove_router
 from .service_alerts import router as service_alerts_router
+from .email_notifications import router as email_notifications_router
 from .assistant import router as assistant_router
 from .water import router as water_router, validation_error_response as water_validation_error_response
 from .energy import router as energy_router, validation_error_response as energy_validation_error_response
@@ -68,6 +69,7 @@ app.include_router(infrastructure_router)
 app.include_router(auth_gateway_router)
 app.include_router(ecomove_router)
 app.include_router(service_alerts_router)
+app.include_router(email_notifications_router)
 app.include_router(assistant_router)
 app.include_router(water_router)
 app.include_router(energy_router)
